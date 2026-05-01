@@ -41,6 +41,7 @@ export default function Upload() {
 
   // Form state (replaces uncontrolled inputs)
   const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [level, setLevel] = useState("");
   const [league, setLeague] = useState("");
   const [originalCall, setOriginalCall] = useState("");
@@ -54,6 +55,18 @@ export default function Upload() {
     }, 4000); // ~4s per stage; full pipeline ≈ 16s
     return () => clearInterval(interval);
   }, [analyzing]);
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewUrl(objectUrl);
+
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
 
   const handleFileSelect = (selectedFile: File | undefined) => {
     if (!selectedFile) return;
@@ -155,7 +168,7 @@ export default function Upload() {
                 handleFileSelect(e.dataTransfer.files?.[0]);
               }}
               className={`
-                bg-white border-4 border-dashed rounded-xl p-16 text-center transition-all cursor-pointer
+                bg-white border-4 border-dashed rounded-xl p-6 md:p-8 text-center transition-all cursor-pointer
                 ${dragActive
                   ? "border-black bg-gray-50 scale-[1.02]"
                   : "border-black/30 hover:border-black/50"}
@@ -164,30 +177,58 @@ export default function Upload() {
                 backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.02) 10px, rgba(0,0,0,0.02) 20px)`,
               }}
             >
-              <div className="text-6xl mb-4">📹</div>
-              {file ? (
-                <>
-                  <p className="text-xl mb-2">{file.name}</p>
-                  <p className="text-sm text-gray-500 mb-4">
-                    {(file.size / 1024 / 1024).toFixed(1)} MB · click to change
-                  </p>
-                </>
+              {file && previewUrl ? (
+                <div className="text-left">
+                  <div className="relative aspect-video overflow-hidden rounded-lg bg-black mb-4 shadow-[4px_4px_0_0_rgba(0,0,0,0.12)]">
+                    <video
+                      src={previewUrl}
+                      controls
+                      muted
+                      playsInline
+                      preload="metadata"
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-full w-full object-contain"
+                    />
+                    <div className="absolute left-3 top-3 bg-black/70 text-white text-xs font-mono px-2 py-1 rounded">
+                      SELECTED CLIP
+                    </div>
+                  </div>
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-medium break-all">{file.name}</p>
+                      <p className="text-sm text-gray-500">
+                        {(file.size / 1024 / 1024).toFixed(1)} MB
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                      className="bg-black text-white px-6 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+                    >
+                      Change Clip
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <>
+                  <div className="text-6xl mb-4">📹</div>
                   <p className="text-xl mb-2">Drop your video here</p>
                   <p className="text-sm text-gray-500 mb-4">or click to browse</p>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                    className="bg-black text-white px-6 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+                  >
+                    Choose File
+                  </button>
                 </>
               )}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  fileInputRef.current?.click();
-                }}
-                className="bg-black text-white px-6 py-2 rounded-lg hover:bg-gray-800 transition-colors"
-              >
-                Choose File
-              </button>
               <p className="text-xs text-gray-400 mt-4 font-mono">
                 Supports MP4, MOV, AVI · Max 500MB
               </p>
