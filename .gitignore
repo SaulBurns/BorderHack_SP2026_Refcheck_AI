@@ -28,6 +28,9 @@ pnpm-debug.log*
 coverage/
 frontend/coverage/
 
+# FAISS binary index — built at deploy time by build.sh / scripts/build_faiss.py
+*.faiss
+
 # misc
 .DS_Store
 frontend.next.backup/
