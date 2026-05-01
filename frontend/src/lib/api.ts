@@ -1,0 +1,61 @@
+// src/lib/api.ts
+import type { AnalyzeResponse } from "./types";
+
+// Vite env var convention. Set VITE_API_BASE in .env.local
+// Cast through unknown to avoid needing the vite/client types reference
+// (the Figma export's tsconfig may or may not include it).
+const API_BASE: string =
+  ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE) ??
+  "http://localhost:8000";
+
+export interface AnalyzeParams {
+  file: File;
+  sport: "basketball";
+  originalCall?: string;
+  refName?: string;
+  league?: string;
+  level?: string;
+}
+
+export async function analyzeClip(
+  params: AnalyzeParams,
+): Promise<AnalyzeResponse> {
+  const formData = new FormData();
+  formData.append("file", params.file);
+  formData.append("sport", params.sport);
+  if (params.originalCall) formData.append("original_call", params.originalCall);
+  if (params.refName) formData.append("ref_name", params.refName);
+  if (params.league) formData.append("league", params.league);
+  if (params.level) formData.append("level", params.level);
+
+  const res = await fetch(`${API_BASE}/api/analyze`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Analysis failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/health`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Local persistence helpers — simple sessionStorage cache so the verdict page
+// can re-render without re-hitting the API.
+export function cacheVerdict(clipId: string, response: AnalyzeResponse): void {
+  sessionStorage.setItem(`refcheck:verdict:${clipId}`, JSON.stringify(response));
+}
+
+export function getCachedVerdict(clipId: string): AnalyzeResponse | null {
+  const raw = sessionStorage.getItem(`refcheck:verdict:${clipId}`);
+  return raw ? (JSON.parse(raw) as AnalyzeResponse) : null;
+}
