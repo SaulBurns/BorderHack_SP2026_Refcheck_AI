@@ -1,8 +1,10 @@
+import { Bot, BookOpen, Scale, Upload } from "lucide-react";
+
 const steps = [
-  { number: "01", title: "Upload clip", description: "Submit your controversial call video", emoji: "📤" },
-  { number: "02", title: "AI analyzes", description: "Our AI reviews the footage frame-by-frame", emoji: "🤖" },
-  { number: "03", title: "Compare rulebook", description: "Cross-reference with official sport rules", emoji: "📖" },
-  { number: "04", title: "Return verdict", description: "Get AI verdict + community ratings", emoji: "⚖️" },
+  { number: "01", title: "Upload clip", description: "Submit your controversial call video", Icon: Upload },
+  { number: "02", title: "AI analyzes", description: "Our AI reviews the footage frame-by-frame", Icon: Bot },
+  { number: "03", title: "Compare rulebook", description: "Cross-reference with official basketball rules", Icon: BookOpen },
+  { number: "04", title: "Return verdict", description: "Get AI verdict + community ratings", Icon: Scale },
 ];
 
 const colors = ["#FFF9C4", "#FFE5E5", "#E5F3FF", "#E5FFE5"];
@@ -24,7 +26,7 @@ export default function HowItWorks() {
                 transform: `rotate(${idx % 2 === 0 ? '1deg' : '-1deg'})`
               }}
             >
-              <div className="text-4xl mb-3">{step.emoji}</div>
+              <step.Icon className="mb-3 h-10 w-10" strokeWidth={2.2} />
               <div className="font-mono text-xs mb-3 opacity-60 tracking-wider">STEP {step.number}</div>
               <h3 className="mb-2 text-lg">{step.title}</h3>
               <p className="text-sm text-gray-700 leading-relaxed">{step.description}</p>

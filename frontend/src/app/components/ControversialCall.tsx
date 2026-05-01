@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { CircleDot, ThumbsDown, ThumbsUp } from "lucide-react";
 import { getFeedItems, type FeedItem } from "../../lib/api";
 
 const verdictStyles = {
@@ -97,7 +98,7 @@ export default function ControversialCall() {
             <>
               <div className="absolute inset-0 bg-black/10"></div>
               <div className="relative z-10 text-center">
-                <div className="text-6xl mb-2">🏀</div>
+                <CircleDot className="mx-auto mb-2 h-16 w-16 text-black/40" strokeWidth={1.8} />
                 <span className="text-gray-600">
                   {isLoaded ? "Demo preview" : "Loading featured clip..."}
                 </span>
@@ -127,10 +128,12 @@ export default function ControversialCall() {
         </div>
         <div className="mt-6 flex gap-4">
           <button className="flex-1 bg-[#2DBF4F] text-white py-3 rounded-lg hover:bg-[#25a643] transition-colors">
-            👍 Fair Call ({featuredCall.fairVotes})
+            <ThumbsUp className="mr-2 inline h-4 w-4" />
+            Fair Call ({featuredCall.fairVotes})
           </button>
           <button className="flex-1 bg-[#E63946] text-white py-3 rounded-lg hover:bg-[#d1303c] transition-colors">
-            👎 Bad Call ({featuredCall.badVotes})
+            <ThumbsDown className="mr-2 inline h-4 w-4" />
+            Bad Call ({featuredCall.badVotes})
           </button>
         </div>
       </div>

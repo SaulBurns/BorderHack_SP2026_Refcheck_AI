@@ -2,9 +2,25 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import {
+  AlertTriangle,
+  BookOpen,
+  CircleHelp,
+  Share2,
+  Star,
+  ThumbsDown,
+  ThumbsUp,
+  Video,
+} from "lucide-react";
 import { getCachedVerdict, getCachedLocalVideoUrl, resolveApiUrl } from "../../lib/api";
 import type { AnalyzeResponse, Verdict as VerdictType } from "../../lib/types";
 import { VERDICT_COLOR, VERDICT_LABEL } from "../../lib/types";
+
+const clampPercent = (value: unknown, fallback: number) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(0, Math.min(100, number));
+};
 
 export default function Verdict() {
   const params = useParams<{ id: string }>();
@@ -38,7 +54,7 @@ export default function Verdict() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-24 text-center">
         <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-12 border-2 border-black/5 transform -rotate-1">
-          <div className="text-6xl mb-4">🤔</div>
+          <CircleHelp className="mx-auto mb-4 h-16 w-16 text-[#F6B40F]" strokeWidth={2.5} />
           <h1 className="font-marker text-3xl mb-4">No verdict found</h1>
           <p className="text-gray-600 mb-6">
             This clip hasn't been analyzed in this session. Upload a video to get a fresh verdict.
@@ -65,6 +81,15 @@ export default function Verdict() {
   const keyMomentFrameSrc = data.key_moment?.frame_url
     ? resolveApiUrl(data.key_moment.frame_url)
     : null;
+  const impactZone = v.perception.impact_zone || {
+    x_percent: 50,
+    y_percent: 50,
+    radius_percent: 14,
+    label: "Estimated impact zone",
+  };
+  const impactX = clampPercent(impactZone.x_percent, 50);
+  const impactY = clampPercent(impactZone.y_percent, 50);
+  const impactRadius = Math.max(5, Math.min(24, clampPercent(impactZone.radius_percent, 14)));
 
   const handleHelpfulVote = (vote: "yes" | "no") => {
     setHelpfulVote(vote);
@@ -139,7 +164,7 @@ export default function Verdict() {
             <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center relative">
               <div className="absolute inset-0 bg-black/20"></div>
               <div className="relative z-10 text-center">
-                <div className="text-7xl mb-3">▶️</div>
+                <Video className="mx-auto mb-3 h-20 w-20 text-white/80" strokeWidth={1.8} />
                 <p className="text-gray-600">Clip playback unavailable</p>
               </div>
             </div>
@@ -193,6 +218,27 @@ export default function Verdict() {
                 >
                   FRAME {data.key_moment.frame_number}
                 </div>
+                <div
+                  className="absolute rounded-full border-4 border-[#F6B40F] bg-[#F6B40F]/10 shadow-[0_0_0_6px_rgba(246,180,15,0.22)] animate-pulse"
+                  style={{
+                    left: `${impactX}%`,
+                    top: `${impactY}%`,
+                    width: `${impactRadius * 2}%`,
+                    aspectRatio: "1 / 1",
+                    transform: "translate(-50%, -50%)",
+                  }}
+                  aria-label={impactZone.label}
+                />
+                <div
+                  className="absolute rounded-full border-2 border-white/90"
+                  style={{
+                    left: `${impactX}%`,
+                    top: `${impactY}%`,
+                    width: `${Math.max(3, impactRadius * 0.45)}%`,
+                    aspectRatio: "1 / 1",
+                    transform: "translate(-50%, -50%)",
+                  }}
+                />
               </div>
             </div>
             <div className="md:w-1/2">
@@ -202,12 +248,16 @@ export default function Verdict() {
                   ` · ~${Number(data.key_moment.approximate_seconds).toFixed(1)}s`}
               </div>
               <h2 className="font-marker text-3xl mb-3">
-                Why this frame matters
+                Impact Zone
               </h2>
               <p className="text-gray-700 leading-relaxed mb-4">
                 {data.key_moment.explanation}
               </p>
               <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-[#FFF9E6] rounded-lg p-3 col-span-2 border-l-4 border-[#F6B40F]">
+                  <div className="font-mono text-[11px] opacity-50 mb-1">AGENT MARKER</div>
+                  <div>{impactZone.label}</div>
+                </div>
                 <div className="bg-gray-50 rounded-lg p-3">
                   <div className="font-mono text-[11px] opacity-50 mb-1">CONTACT</div>
                   <div>{v.perception.contact_detected ? v.perception.contact_location : "none detected"}</div>
@@ -240,7 +290,7 @@ export default function Verdict() {
       {v.cited_rule && (
         <div className="bg-[#FFF9E6] rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-6 border-l-8 border-[#F6B40F] transform -rotate-1">
           <div className="flex items-start gap-3 mb-3">
-            <div className="text-3xl">📖</div>
+            <BookOpen className="h-8 w-8 text-[#F6B40F]" strokeWidth={2.4} />
             <div>
               <div className="font-mono text-xs opacity-60 mb-1">
                 RULE CITED · PAGE {v.cited_rule.page_number}
@@ -312,7 +362,8 @@ export default function Verdict() {
                 helpfulVote === "yes" ? "bg-[#25a643] ring-4 ring-[#2DBF4F]/20" : "bg-[#2DBF4F] hover:bg-[#25a643]"
               }`}
             >
-              👍 {helpfulVote === "yes" ? "Marked helpful" : "Yes"}
+              <ThumbsUp className="mr-2 inline h-4 w-4" />
+              {helpfulVote === "yes" ? "Marked helpful" : "Yes"}
             </button>
             <button
               onClick={() => handleHelpfulVote("no")}
@@ -320,7 +371,8 @@ export default function Verdict() {
                 helpfulVote === "no" ? "bg-[#d1303c] ring-4 ring-[#E63946]/20" : "bg-[#E63946] hover:bg-[#d1303c]"
               }`}
             >
-              👎 {helpfulVote === "no" ? "Feedback saved" : "No"}
+              <ThumbsDown className="mr-2 inline h-4 w-4" />
+              {helpfulVote === "no" ? "Feedback saved" : "No"}
             </button>
           </div>
           {helpfulVote && (
@@ -346,7 +398,8 @@ export default function Verdict() {
           onClick={handleShare}
           className="bg-[#3B82F6] text-white px-8 py-4 rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,0.2)] hover:shadow-[6px_6px_0_0_rgba(0,0,0,0.2)] transition-all transform rotate-1 hover:rotate-0"
         >
-          {shareStatus || "Share This Verdict 📤"}
+          <Share2 className="mr-2 inline h-5 w-5" />
+          {shareStatus || "Share This Verdict"}
         </button>
       </div>
 
@@ -371,7 +424,13 @@ export default function Verdict() {
                             star <= ratingValues[dimension] ? "" : "grayscale opacity-40"
                           }`}
                         >
-                          ⭐
+                          <Star
+                            className={`h-8 w-8 ${
+                              star <= ratingValues[dimension]
+                                ? "fill-[#F6B40F] text-[#F6B40F]"
+                                : "text-gray-300"
+                            }`}
+                          />
                         </button>
                       ))}
                     </div>
@@ -435,7 +494,8 @@ function AdjudicatorPanel({
       <p className="text-sm text-gray-700">{adj.reasoning}</p>
       {adj.flags.length > 0 && (
         <p className="mt-2 text-xs text-red-700 font-mono">
-          ⚠ {adj.flags.join(" · ")}
+          <AlertTriangle className="mr-1 inline h-3 w-3" />
+          {adj.flags.join(" · ")}
         </p>
       )}
     </div>

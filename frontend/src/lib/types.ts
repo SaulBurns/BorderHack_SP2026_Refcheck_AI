@@ -22,6 +22,12 @@ export interface EventDescription {
   ball_visible: boolean;
   ball_state: string;
   moment_of_interest_seconds: number | null;
+  impact_zone?: {
+    x_percent: number;
+    y_percent: number;
+    radius_percent: number;
+    label: string;
+  };
   visual_quality: VisualQuality;
   perception_confidence: number;
   notes: string | null;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Calendar, Check, CircleHelp, Flame, MessageCircle, Play, ThumbsDown, ThumbsUp, Trophy, X, Zap } from "lucide-react";
 import { getFeedItems, type FeedItem } from "../../lib/api";
 
 const clips = [
@@ -238,13 +239,13 @@ export default function Feed() {
       <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-8 border-2 border-black/5">
         <div className="flex flex-wrap gap-3">
           {[
-            { id: 'today', label: 'Today', emoji: '📅' },
-            { id: 'week', label: 'This Week', emoji: '📆' },
-            { id: 'all-time', label: 'All Time', emoji: '🏆' },
-            { id: 'professional', label: 'Professional', emoji: '🏆' },
-            { id: 'college', label: 'College', emoji: '🎓' },
-            { id: 'high-school', label: 'High School', emoji: '🏫' },
-            { id: 'disagreement', label: 'Most Disagreement', emoji: '⚡' },
+            { id: 'today', label: 'Today', Icon: Calendar },
+            { id: 'week', label: 'This Week', Icon: Flame },
+            { id: 'all-time', label: 'All Time', Icon: Trophy },
+            { id: 'professional', label: 'Professional', Icon: Trophy },
+            { id: 'college', label: 'College', Icon: Trophy },
+            { id: 'high-school', label: 'High School', Icon: Trophy },
+            { id: 'disagreement', label: 'Most Disagreement', Icon: Zap },
           ].map(f => (
             <button
               key={f.id}
@@ -257,7 +258,8 @@ export default function Feed() {
                 }
               `}
             >
-              {f.emoji} {f.label}
+              <f.Icon className="mr-2 inline h-4 w-4" />
+              {f.label}
             </button>
           ))}
         </div>
@@ -294,9 +296,7 @@ export default function Feed() {
                     <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-300" />
                   )}
                   <div className="absolute inset-0 bg-black/25 group-hover:bg-black/35 transition-colors"></div>
-                  <div className="relative z-10 text-5xl group-hover:scale-110 transition-transform">
-                    ▶️
-                  </div>
+                  <Play className="relative z-10 h-14 w-14 fill-white text-white transition-transform group-hover:scale-110" />
                   <span className="absolute bottom-2 left-2 bg-black/75 text-white text-xs font-mono px-2 py-1 rounded">
                     {clip.isLiveUpload ? "Uploaded Clip" : "Demo Preview"}
                   </span>
@@ -369,7 +369,12 @@ export default function Feed() {
                       `}
                       style={{ borderWidth: '3px' }}
                     >
-                      AI vs CROWD: {clip.aiVsCrowd} {clip.aiVsCrowd === 'AGREE' ? '✓' : '✗'}
+                      AI vs CROWD: {clip.aiVsCrowd}
+                      {clip.aiVsCrowd === 'AGREE' ? (
+                        <Check className="ml-2 inline h-4 w-4" />
+                      ) : (
+                        <X className="ml-2 inline h-4 w-4" />
+                      )}
                     </div>
                   </div>
 
@@ -380,26 +385,26 @@ export default function Feed() {
                         onClick={() => handleVote(clip, "fair")}
                         className={`flex-1 text-white py-2 px-3 rounded-lg transition-colors text-sm ${userVote === "fair" ? "bg-[#25a643] ring-4 ring-[#2DBF4F]/20" : "bg-[#2DBF4F] hover:bg-[#25a643]"}`}
                       >
-                        👍 Fair
+                        <ThumbsUp className="mr-2 inline h-4 w-4" /> Fair
                       </button>
                       <button
                         onClick={() => handleVote(clip, "bad")}
                         className={`flex-1 text-white py-2 px-3 rounded-lg transition-colors text-sm ${userVote === "bad" ? "bg-[#d1303c] ring-4 ring-[#E63946]/20" : "bg-[#E63946] hover:bg-[#d1303c]"}`}
                       >
-                        👎 Bad
+                        <ThumbsDown className="mr-2 inline h-4 w-4" /> Bad
                       </button>
                       <button
                         onClick={() => handleVote(clip, "inconclusive")}
                         className={`flex-1 text-white py-2 px-3 rounded-lg transition-colors text-sm ${userVote === "inconclusive" ? "bg-[#e0a20e] ring-4 ring-[#F6B40F]/20" : "bg-[#F6B40F] hover:bg-[#e0a20e]"}`}
                       >
-                        ❓ Unclear
+                        <CircleHelp className="mr-2 inline h-4 w-4" /> Unclear
                       </button>
                     </div>
                     <button
                       onClick={() => setSelectedClipId(clip.id)}
                       className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-sm"
                     >
-                      💬 {clip.comments}
+                      <MessageCircle className="h-4 w-4" /> {clip.comments}
                     </button>
                   </div>
                 </div>
@@ -436,7 +441,7 @@ export default function Feed() {
                     />
                   ) : (
                     <div className="aspect-video bg-gradient-to-br from-gray-100 to-gray-300 rounded-lg flex items-center justify-center mb-4">
-                      <span className="text-6xl">▶️</span>
+                      <Play className="h-16 w-16 fill-black/60 text-black/60" />
                     </div>
                   )}
             <h2 className="font-marker text-3xl mb-2">

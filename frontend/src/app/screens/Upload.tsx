@@ -2,14 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Bot, Check, Circle, Clock3, FileVideo, Trophy, CircleDot } from "lucide-react";
 import { analyzeClip, cacheVerdict, cacheLocalVideoUrl } from "../../lib/api";
 
 const sports = [
-  { id: "basketball", name: "Basketball", emoji: "🏀", active: true },
-  { id: "soccer", name: "Soccer", emoji: "⚽", active: false },
-  { id: "football", name: "Football", emoji: "🏈", active: false },
-  { id: "baseball", name: "Baseball", emoji: "⚾", active: false },
-  { id: "hockey", name: "Hockey", emoji: "🏒", active: false },
+  { id: "basketball", name: "Basketball", active: true, Icon: Trophy },
+  { id: "tennis", name: "Tennis", active: false, Icon: CircleDot },
 ];
 
 const basketballLevels = [
@@ -110,7 +108,7 @@ export default function Upload() {
           {/* Sport Selector */}
           <div>
             <label className="block mb-4 font-mono text-sm opacity-60">SELECT SPORT</label>
-            <div className="grid grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {sports.map((sport) => (
                 <button
                   key={sport.id}
@@ -127,7 +125,7 @@ export default function Upload() {
                     }
                   `}
                 >
-                  <div className="text-3xl mb-2">{sport.emoji}</div>
+                  <sport.Icon className="mx-auto mb-2 h-8 w-8" />
                   <div className="text-sm">{sport.name}</div>
                   {!sport.active && (
                     <div className="absolute -top-2 -right-2 bg-[#F6B40F] text-xs px-2 py-1 rounded transform rotate-12 shadow-sm">
@@ -206,7 +204,7 @@ export default function Upload() {
                 </div>
               ) : (
                 <>
-                  <div className="text-6xl mb-4">📹</div>
+                  <FileVideo className="mx-auto mb-4 h-16 w-16 text-black/60" strokeWidth={1.8} />
                   <p className="text-xl mb-2">Drop your video here</p>
                   <p className="text-sm text-gray-500 mb-4">or click to browse</p>
                   <button
@@ -317,7 +315,7 @@ export default function Upload() {
             </div>
           )}
           <div className="text-center mb-8">
-            <div className="text-6xl mb-4 animate-bounce">🤖</div>
+            <Bot className="mx-auto mb-4 h-16 w-16 animate-bounce text-[#3B82F6]" strokeWidth={1.8} />
             <h2 className="text-2xl mb-2">Analyzing Your Clip...</h2>
             <p className="text-gray-500">This usually takes 15-30 seconds</p>
           </div>
@@ -337,9 +335,13 @@ export default function Upload() {
                   }
                 `}
               >
-                <div className="text-2xl">
-                  {idx < currentStep ? "✓" : idx === currentStep ? "⏳" : "○"}
-                </div>
+                {idx < currentStep ? (
+                  <Check className="h-6 w-6 text-[#2DBF4F]" />
+                ) : idx === currentStep ? (
+                  <Clock3 className="h-6 w-6 text-[#F6B40F]" />
+                ) : (
+                  <Circle className="h-6 w-6 text-gray-300" />
+                )}
                 <div className="font-mono text-sm flex-1">{step}</div>
               </div>
             ))}

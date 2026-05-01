@@ -2,6 +2,7 @@
 
 import Image, { type StaticImageData } from "next/image";
 import { useState } from "react";
+import { Search, Star } from "lucide-react";
 import edMalloyPhoto from "../../images/ed_malloy.jpg";
 import jamesCapersPhoto from "../../images/james_capers.jpg";
 import johnGoblePhoto from "../../images/john_goble.jpg";
@@ -252,7 +253,7 @@ export default function Leaderboard() {
               {/* Stats */}
               <div className="text-right space-y-2">
                 <div className="flex items-center gap-2 justify-end">
-                  <span className="text-3xl">⭐</span>
+                  <Star className="h-8 w-8 fill-[#F6B40F] text-[#F6B40F]" />
                   <span className="text-2xl">{ref.rating}</span>
                   {ref.trend === "up" && <span className="text-[#2DBF4F] text-xl">↗</span>}
                   {ref.trend === "down" && <span className="text-[#E63946] text-xl">↘</span>}
@@ -276,7 +277,7 @@ export default function Leaderboard() {
 
       {filteredRefs.length === 0 && (
         <div className="text-center py-16 text-gray-500">
-          <div className="text-6xl mb-4">🔍</div>
+          <Search className="mx-auto mb-4 h-16 w-16 text-gray-400" />
           <p>No refs found matching "{searchQuery}"</p>
         </div>
       )}

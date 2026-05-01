@@ -65,10 +65,18 @@ Output ONLY valid JSON. No prose, no markdown fences.
   "ball_visible": true,
   "ball_state": "gathered | dribbling | upward_motion | released | in_flight | unclear",
   "moment_of_interest_seconds": 0.0,
+  "impact_zone": {
+    "x_percent": 50,
+    "y_percent": 50,
+    "radius_percent": 12,
+    "label": "contact point or decisive action"
+  },
   "visual_quality": "clear | partial | obstructed | poor",
   "perception_confidence": 0.0,
   "notes": "optional caveats"
 }
+
+Impact zone should be normalized to the frame: x_percent and y_percent range from 0 to 100. Use it to identify the visible contact point, foot placement, ball release, boundary touch, or other decisive visual region. If the exact point is unclear, estimate the most relevant area and lower confidence.
 """.strip()
 
 RETRIEVAL_SYSTEM_PROMPT = """
@@ -486,6 +494,12 @@ def _mock_ai_result(
             "ball_visible": True,
             "ball_state": "unclear",
             "moment_of_interest_seconds": 4.2,
+            "impact_zone": {
+                "x_percent": 50,
+                "y_percent": 50,
+                "radius_percent": 14,
+                "label": "Estimated contact area",
+            },
             "visual_quality": "partial",
             "perception_confidence": confidence,
             "notes": fallback_reason or "Mock fallback used for demo stability.",
@@ -660,6 +674,13 @@ def _frontend_perception(perception: dict, provider_used: str, retrieval_query: 
         "ball_visible": bool(perception.get("ball_visible", False)),
         "ball_state": str(perception.get("ball_state") or "unclear"),
         "moment_of_interest_seconds": perception.get("moment_of_interest_seconds"),
+        "impact_zone": perception.get("impact_zone")
+        or {
+            "x_percent": 50,
+            "y_percent": 50,
+            "radius_percent": 14,
+            "label": "Estimated impact zone",
+        },
         "visual_quality": str(perception.get("visual_quality") or "partial"),
         "perception_confidence": _safe_float(perception.get("perception_confidence"), 0.5),
         "notes": (

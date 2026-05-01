@@ -1,3 +1,5 @@
+import { Trophy } from "lucide-react";
+
 export default function Footer() {
   return (
     <footer className="border-t-4 border-black mt-20 py-10 bg-white">
@@ -10,7 +12,10 @@ export default function Footer() {
           </div>
         </div>
         <div className="mt-8 text-center text-sm text-gray-500">
-          <p>Any level. Any league. Fair calls for everyone. 🏀</p>
+          <p className="inline-flex items-center gap-2">
+            Any level. Any league. Fair calls for everyone.
+            <Trophy className="h-4 w-4" />
+          </p>
         </div>
       </div>
     </footer>

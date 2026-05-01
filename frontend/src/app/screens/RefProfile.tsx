@@ -1,6 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
+import { CircleHelp, Play, Star, ThumbsDown, ThumbsUp } from "lucide-react";
+import zachZarbaPhoto from "../../images/zach_zarba.jpg";
 
 const recentCalls = [
   {
@@ -52,7 +55,7 @@ export default function RefProfile() {
 
   const ref = {
     name: "John Smith",
-    photo: "👨‍⚖️",
+    photo: zachZarbaPhoto,
     league: "High School - Division 1",
     sport: "Basketball",
     years: 12,
@@ -116,7 +119,16 @@ export default function RefProfile() {
       {/* Hero Header */}
       <div className="bg-white rounded-xl shadow-[8px_8px_0_0_rgba(0,0,0,0.15)] p-8 mb-8 border-2 border-black/5 transform -rotate-1">
         <div className="flex items-start gap-8">
-          <div className="text-8xl">{ref.photo}</div>
+          <div className="relative h-28 w-28 flex-shrink-0 overflow-hidden rounded-full border-2 border-black/10 bg-gray-100 shadow-[4px_4px_0_0_rgba(0,0,0,0.12)]">
+            <Image
+              src={ref.photo}
+              alt={`${ref.name} profile`}
+              fill
+              sizes="112px"
+              className="object-cover"
+              placeholder="blur"
+            />
+          </div>
           <div className="flex-1">
             <h1 className="font-marker text-5xl mb-3">{ref.name}</h1>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-2 text-sm font-mono text-gray-600">
@@ -129,7 +141,7 @@ export default function RefProfile() {
           </div>
           <div className="text-right">
             <div className="flex items-center gap-2 justify-end mb-2">
-              <span className="text-5xl">⭐</span>
+              <Star className="h-12 w-12 fill-[#F6B40F] text-[#F6B40F]" />
               <span className="text-5xl">{ref.overallRating}</span>
             </div>
             <div className="text-sm text-gray-500">Overall Rating</div>
@@ -145,7 +157,10 @@ export default function RefProfile() {
             <div key={dimension}>
               <div className="flex justify-between mb-2">
                 <span className="capitalize">{dimension.replace(/([A-Z])/g, ' $1').trim()}</span>
-                <span className="font-mono">{rating} ⭐</span>
+                <span className="font-mono inline-flex items-center gap-1">
+                  {rating}
+                  <Star className="h-4 w-4 fill-[#F6B40F] text-[#F6B40F]" />
+                </span>
               </div>
               <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
                 <div
@@ -204,7 +219,7 @@ export default function RefProfile() {
                 <div className="flex gap-6">
                   {/* Thumbnail */}
                   <div className="bg-gray-200 w-48 h-28 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <span className="text-4xl">▶️</span>
+                    <Play className="h-10 w-10 fill-black/60 text-black/60" />
                   </div>
 
                   {/* Details */}
@@ -227,15 +242,21 @@ export default function RefProfile() {
                       <div className="text-xs font-mono mb-1 opacity-60">CROWD VERDICT</div>
                       <div className="flex gap-2 text-sm">
                         <div className="flex items-center gap-1">
-                          <span className="text-[#2DBF4F]">👍 Fair:</span>
+                          <span className="inline-flex items-center gap-1 text-[#2DBF4F]">
+                            <ThumbsUp className="h-4 w-4" /> Fair:
+                          </span>
                           <span>{Math.round((totals.fairVotes / totalVotes) * 100)}%</span>
                         </div>
                         <div className="flex items-center gap-1">
-                          <span className="text-[#E63946]">👎 Bad:</span>
+                          <span className="inline-flex items-center gap-1 text-[#E63946]">
+                            <ThumbsDown className="h-4 w-4" /> Bad:
+                          </span>
                           <span>{Math.round((totals.badVotes / totalVotes) * 100)}%</span>
                         </div>
                         <div className="flex items-center gap-1">
-                          <span className="text-[#F6B40F]">❓ Unclear:</span>
+                          <span className="inline-flex items-center gap-1 text-[#F6B40F]">
+                            <CircleHelp className="h-4 w-4" /> Unclear:
+                          </span>
                           <span>{Math.round((totals.inconclusiveVotes / totalVotes) * 100)}%</span>
                         </div>
                       </div>
@@ -283,7 +304,13 @@ export default function RefProfile() {
                         star <= (ratingValues[dimension] || 0) ? "" : "grayscale opacity-40"
                       }`}
                     >
-                      ⭐
+                      <Star
+                        className={`h-9 w-9 ${
+                          star <= (ratingValues[dimension] || 0)
+                            ? "fill-[#F6B40F] text-[#F6B40F]"
+                            : "text-gray-300"
+                        }`}
+                      />
                     </button>
                   ))}
                 </div>
@@ -349,7 +376,7 @@ export default function RefProfile() {
               return (
                 <>
                   <div className="aspect-video bg-gray-200 rounded-lg flex items-center justify-center mb-4">
-                    <span className="text-6xl">▶️</span>
+                    <Play className="h-16 w-16 fill-black/60 text-black/60" />
                   </div>
                   <h2 className="font-marker text-3xl mb-2">{call.game}</h2>
                   <p className="text-sm text-gray-600 mb-4">

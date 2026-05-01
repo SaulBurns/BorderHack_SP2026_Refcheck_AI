@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image, { type StaticImageData } from "next/image";
+import { Star } from "lucide-react";
 import edMalloyPhoto from "../../images/ed_malloy.jpg";
 import jamesCapersPhoto from "../../images/james_capers.jpg";
 import johnGoblePhoto from "../../images/john_goble.jpg";
@@ -79,7 +80,7 @@ export default function RefLeaderboards() {
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1">
-                    <span className="text-xl">⭐</span>
+                    <Star className="h-5 w-5 fill-[#F6B40F] text-[#F6B40F]" />
                     <span>{ref.rating}</span>
                   </div>
                   {ref.trend === "up" && <span className="text-[#2DBF4F]">↗</span>}
@@ -115,7 +116,7 @@ export default function RefLeaderboards() {
                 </div>
                 <div className="text-right">
                   <div className="flex items-center gap-1">
-                    <span className="text-xl">⭐</span>
+                    <Star className="h-5 w-5 fill-[#F6B40F] text-[#F6B40F]" />
                     <span>{ref.rating}</span>
                   </div>
                   <div className="text-sm text-[#E63946] font-mono">{ref.disputes} DISPUTES</div>
