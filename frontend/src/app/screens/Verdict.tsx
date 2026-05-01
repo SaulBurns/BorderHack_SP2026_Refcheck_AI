@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getCachedVerdict, resolveApiUrl } from "../../lib/api";
+import { getCachedVerdict, getCachedLocalVideoUrl, resolveApiUrl } from "../../lib/api";
 import type { AnalyzeResponse, Verdict as VerdictType } from "../../lib/types";
 import { VERDICT_COLOR, VERDICT_LABEL } from "../../lib/types";
 
@@ -23,11 +23,14 @@ export default function Verdict() {
     Fairness: 0,
   });
   const [ratingSaved, setRatingSaved] = useState(false);
+  const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     const cached = getCachedVerdict(id);
     if (cached) setData(cached);
+    const localUrl = getCachedLocalVideoUrl(id);
+    if (localUrl) setLocalVideoUrl(localUrl);
   }, [id]);
 
   // Empty state — clip ID is unknown or sessionStorage was cleared
@@ -58,7 +61,7 @@ export default function Verdict() {
     color: VERDICT_COLOR[verdictKey],
   };
   const confidencePct = Math.round(v.confidence * 100);
-  const clipSrc = data.clip_url ? resolveApiUrl(data.clip_url) : null;
+  const clipSrc = data.clip_url ? resolveApiUrl(data.clip_url) : localVideoUrl;
 
   const handleHelpfulVote = (vote: "yes" | "no") => {
     setHelpfulVote(vote);

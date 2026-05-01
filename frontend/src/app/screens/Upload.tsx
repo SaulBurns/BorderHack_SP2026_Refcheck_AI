@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { analyzeClip, cacheVerdict } from "../../lib/api";
+import { analyzeClip, cacheVerdict, cacheLocalVideoUrl } from "../../lib/api";
 
 const sports = [
   { id: "basketball", name: "Basketball", emoji: "🏀", active: true },
@@ -41,7 +41,7 @@ export default function Upload() {
 
   // Form state (replaces uncontrolled inputs)
   const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const [level, setLevel] = useState("");
   const [league, setLeague] = useState("");
   const [originalCall, setOriginalCall] = useState("");
@@ -56,18 +56,6 @@ export default function Upload() {
     return () => clearInterval(interval);
   }, [analyzing]);
 
-  useEffect(() => {
-    if (!file) {
-      setPreviewUrl(null);
-      return;
-    }
-
-    const objectUrl = URL.createObjectURL(file);
-    setPreviewUrl(objectUrl);
-
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [file]);
-
   const handleFileSelect = (selectedFile: File | undefined) => {
     if (!selectedFile) return;
     if (!selectedFile.type.startsWith("video/")) {
@@ -75,7 +63,10 @@ export default function Upload() {
       return;
     }
     setError(null);
+    // Revoke previous blob URL to avoid memory leaks
+    if (localVideoUrl) URL.revokeObjectURL(localVideoUrl);
     setFile(selectedFile);
+    setLocalVideoUrl(URL.createObjectURL(selectedFile));
   };
 
   const handleSubmit = async () => {
@@ -97,6 +88,7 @@ export default function Upload() {
         level: level || undefined,
       });
       cacheVerdict(response.clip_id, response);
+      if (localVideoUrl) cacheLocalVideoUrl(response.clip_id, localVideoUrl);
       router.push(`/verdict/${response.clip_id}`);
     } catch (err) {
       setAnalyzing(false);
@@ -177,11 +169,11 @@ export default function Upload() {
                 backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.02) 10px, rgba(0,0,0,0.02) 20px)`,
               }}
             >
-              {file && previewUrl ? (
+              {file && localVideoUrl ? (
                 <div className="text-left">
                   <div className="relative aspect-video overflow-hidden rounded-lg bg-black mb-4 shadow-[4px_4px_0_0_rgba(0,0,0,0.12)]">
                     <video
-                      src={previewUrl}
+                      src={localVideoUrl}
                       controls
                       muted
                       playsInline
@@ -313,6 +305,17 @@ export default function Upload() {
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-[8px_8px_0_0_rgba(0,0,0,0.15)] p-12 border-2 border-black/5">
+          {localVideoUrl && (
+            <div className="mb-8 rounded-xl overflow-hidden bg-black">
+              <video
+                src={localVideoUrl}
+                controls
+                playsInline
+                preload="metadata"
+                className="w-full max-h-64 object-contain bg-black"
+              />
+            </div>
+          )}
           <div className="text-center mb-8">
             <div className="text-6xl mb-4 animate-bounce">🤖</div>
             <h2 className="text-2xl mb-2">Analyzing Your Clip...</h2>
