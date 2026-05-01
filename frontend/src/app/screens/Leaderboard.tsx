@@ -5,96 +5,98 @@ import { useState } from "react";
 const refs = [
   {
     rank: 1,
-    name: "Sarah Mitchell",
-    league: "NCAA Division I",
+    name: "Zach Zarba",
+    league: "NBA",
     sport: "Basketball",
-    years: 12,
+    years: 22,
     rating: 4.8,
-    totalRatings: 1247,
-    aiCallsAnalyzed: 89,
-    aiAgreement: 87,
+    totalRatings: 2418,
+    aiCallsAnalyzed: 173,
+    aiAgreement: 86,
     trend: "up",
-    photo: "👩‍⚖️"
+    photo: "👨‍⚖️"
   },
   {
     rank: 2,
-    name: "Marcus Chen",
-    league: "EuroLeague",
+    name: "Marc Davis",
+    league: "NBA",
     sport: "Basketball",
-    years: 8,
+    years: 27,
     rating: 4.7,
-    totalRatings: 956,
-    aiCallsAnalyzed: 76,
-    aiAgreement: 82,
+    totalRatings: 2675,
+    aiCallsAnalyzed: 218,
+    aiAgreement: 84,
     trend: "up",
     photo: "👨‍⚖️"
   },
   {
     rank: 3,
-    name: "Elena Rodriguez",
-    league: "WNBA",
+    name: "John Goble",
+    league: "NBA",
     sport: "Basketball",
-    years: 15,
+    years: 17,
     rating: 4.6,
-    totalRatings: 1893,
-    aiCallsAnalyzed: 134,
-    aiAgreement: 79,
+    totalRatings: 1984,
+    aiCallsAnalyzed: 151,
+    aiAgreement: 82,
     trend: "neutral",
-    photo: "👩‍⚖️"
+    photo: "👨‍⚖️"
   },
   {
     rank: 4,
-    name: "James O'Brien",
-    league: "High School",
+    name: "Ed Malloy",
+    league: "NBA",
     sport: "Basketball",
-    years: 10,
+    years: 23,
     rating: 4.5,
-    totalRatings: 1124,
-    aiCallsAnalyzed: 92,
-    aiAgreement: 81,
+    totalRatings: 2261,
+    aiCallsAnalyzed: 150,
+    aiAgreement: 80,
     trend: "up",
     photo: "👨‍⚖️"
   },
   {
     rank: 5,
-    name: "Kenji Tanaka",
-    league: "B.League (Japan)",
+    name: "James Capers",
+    league: "NBA",
     sport: "Basketball",
-    years: 6,
+    years: 30,
     rating: 4.4,
-    totalRatings: 734,
-    aiCallsAnalyzed: 58,
-    aiAgreement: 84,
-    trend: "down",
+    totalRatings: 2517,
+    aiCallsAnalyzed: 204,
+    aiAgreement: 79,
+    trend: "neutral",
     photo: "👨‍⚖️"
   },
   {
     rank: 6,
-    name: "David Park",
-    league: "NBA G League",
+    name: "Tony Brothers",
+    league: "NBA",
     sport: "Basketball",
-    years: 28,
-    rating: 2.1,
-    totalRatings: 3421,
-    aiCallsAnalyzed: 247,
-    aiAgreement: 34,
+    years: 27,
+    rating: 3.3,
+    totalRatings: 3142,
+    aiCallsAnalyzed: 216,
+    aiAgreement: 64,
     trend: "down",
     photo: "👨‍⚖️"
   },
   {
     rank: 7,
-    name: "Ahmad Hassan",
-    league: "FIBA Asia",
+    name: "Scott Foster",
+    league: "NBA",
     sport: "Basketball",
-    years: 27,
-    rating: 2.3,
-    totalRatings: 2987,
-    aiCallsAnalyzed: 213,
-    aiAgreement: 41,
+    years: 31,
+    rating: 3.1,
+    totalRatings: 3898,
+    aiCallsAnalyzed: 262,
+    aiAgreement: 61,
     trend: "down",
     photo: "👨‍⚖️"
   },
 ];
+
+const refSlug = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
 
 export default function Leaderboard() {
   const [sortBy, setSortBy] = useState("highest");
@@ -108,7 +110,7 @@ export default function Leaderboard() {
     .filter((ref) => {
       if (levelFilter === "All Levels") return true;
       if (levelFilter === "Professional") {
-        return /EuroLeague|WNBA|G League|FIBA|B\.League/.test(ref.league);
+        return /NBA/.test(ref.league);
       }
       return ref.league.includes(levelFilter);
     })
@@ -127,7 +129,7 @@ export default function Leaderboard() {
       <h1 className="font-marker text-6xl mb-3 text-center transform -rotate-1">
         THE LEADERBOARD
       </h1>
-      <p className="text-center text-gray-600 mb-12">See how refs rank across all levels of basketball</p>
+      <p className="text-center text-gray-600 mb-12">See how NBA officials rank across community ratings and AI-reviewed calls</p>
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-8 border-2 border-black/5">
@@ -136,7 +138,7 @@ export default function Leaderboard() {
           <div>
             <label className="block mb-2 font-mono text-xs opacity-60">LEVEL</label>
             <div className="flex gap-2 flex-wrap">
-              {['All Levels', 'Professional', 'College', 'High School', 'Youth', 'Rec'].map(level => (
+              {['All Levels', 'Professional'].map(level => (
                 <button
                   key={level}
                   onClick={() => setLevelFilter(level)}
@@ -188,7 +190,7 @@ export default function Leaderboard() {
         {filteredRefs.map((ref, idx) => (
           <a
             key={ref.rank}
-            href={`/ref/${ref.name.toLowerCase().replace(' ', '-')}`}
+            href={`/ref/${refSlug(ref.name)}`}
             className="block bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 border-2 border-black/5 hover:shadow-[8px_8px_0_0_rgba(0,0,0,0.15)] hover:scale-[1.01] transition-all transform hover:rotate-1"
             style={{ transform: `rotate(${idx % 2 === 0 ? '0.5deg' : '-0.5deg'})` }}
           >

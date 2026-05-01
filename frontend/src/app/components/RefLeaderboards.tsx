@@ -1,20 +1,22 @@
 import Link from "next/link";
 
 const topRefs = [
-  { name: "Sarah Mitchell", sport: "Basketball", league: "NCAA D1", rating: 4.8, trend: "up" },
-  { name: "Marcus Chen", sport: "Basketball", league: "EuroLeague", rating: 4.7, trend: "up" },
-  { name: "Elena Rodriguez", sport: "Basketball", league: "WNBA", rating: 4.6, trend: "neutral" },
-  { name: "James O'Brien", sport: "Basketball", league: "High School", rating: 4.5, trend: "up" },
-  { name: "Kenji Tanaka", sport: "Basketball", league: "B.League", rating: 4.4, trend: "down" },
+  { name: "Zach Zarba", sport: "Basketball", league: "NBA", rating: 4.8, trend: "up" },
+  { name: "Marc Davis", sport: "Basketball", league: "NBA", rating: 4.7, trend: "up" },
+  { name: "John Goble", sport: "Basketball", league: "NBA", rating: 4.6, trend: "neutral" },
+  { name: "Ed Malloy", sport: "Basketball", league: "NBA", rating: 4.5, trend: "up" },
+  { name: "James Capers", sport: "Basketball", league: "NBA", rating: 4.4, trend: "neutral" },
 ];
 
 const controversialRefs = [
-  { name: "David Park", sport: "Basketball", league: "G League", rating: 2.1, disputes: 47 },
-  { name: "Ahmad Hassan", sport: "Basketball", league: "FIBA Asia", rating: 2.3, disputes: 42 },
-  { name: "Carlos Martinez", sport: "Basketball", league: "Liga ACB", rating: 2.5, disputes: 38 },
-  { name: "Mike Johnson", sport: "Basketball", league: "NCAA D2", rating: 2.6, disputes: 35 },
-  { name: "Tom Anderson", sport: "Basketball", league: "City League", rating: 2.7, disputes: 31 },
+  { name: "Scott Foster", sport: "Basketball", league: "NBA", rating: 3.1, disputes: 53 },
+  { name: "Tony Brothers", sport: "Basketball", league: "NBA", rating: 3.3, disputes: 49 },
+  { name: "Sean Corbin", sport: "Basketball", league: "NBA", rating: 3.5, disputes: 41 },
+  { name: "Courtney Kirkland", sport: "Basketball", league: "NBA", rating: 3.6, disputes: 38 },
+  { name: "Ben Taylor", sport: "Basketball", league: "NBA", rating: 3.7, disputes: 34 },
 ];
+
+const refSlug = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
 
 export default function RefLeaderboards() {
   return (
@@ -29,7 +31,7 @@ export default function RefLeaderboards() {
             {topRefs.map((ref, idx) => (
               <Link
                 key={idx}
-                href={`/ref/${ref.name.toLowerCase().replace(' ', '-')}`}
+                href={`/ref/${refSlug(ref.name)}`}
                 className="bg-white rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,0.1)] p-4 flex items-center justify-between transform hover:rotate-1 transition-transform block"
               >
                 <div className="flex items-center gap-4">
@@ -64,7 +66,7 @@ export default function RefLeaderboards() {
             {controversialRefs.map((ref, idx) => (
               <Link
                 key={idx}
-                href={`/ref/${ref.name.toLowerCase().replace(' ', '-')}`}
+                href={`/ref/${refSlug(ref.name)}`}
                 className="bg-white rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,0.1)] p-4 flex items-center justify-between transform hover:-rotate-1 transition-transform block"
               >
                 <div className="flex items-center gap-4">

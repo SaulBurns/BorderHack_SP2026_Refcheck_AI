@@ -54,6 +54,7 @@ export interface FeedItem {
   verdict: "fair_call" | "bad_call" | "inconclusive" | string | null;
   confidence: number | null;
   call_type: string | null;
+  rule_id: string | null;
   reasoning: string | null;
   created_at: string;
   votes_fair: number;

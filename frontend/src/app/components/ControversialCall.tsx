@@ -1,6 +1,77 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { getFeedItems, type FeedItem } from "../../lib/api";
+
+const verdictStyles = {
+  fair_call: { label: "FAIR CALL", color: "#2DBF4F" },
+  bad_call: { label: "BAD CALL", color: "#E63946" },
+  inconclusive: { label: "INCONCLUSIVE", color: "#F6B40F" },
+};
+
+const fallbackCall = {
+  videoUrl: null as string | null,
+  verdict: "BAD CALL",
+  color: "#E63946",
+  confidence: "89% CONFIDENCE",
+  meta: "High School - Division 1 • State Championship • Q4 2:34",
+  title: "Questionable Offensive Foul Call",
+  description:
+    "Questionable offensive foul called during crucial possession in the state championship finals. AI analysis suggests defensive player was still moving and had not established legal guarding position.",
+  rule: "NFHS Rule 4-7-2: Blocking Foul vs. Charging",
+  fairVotes: 142,
+  badVotes: 891,
+};
+
+function callFromFeedItem(item: FeedItem) {
+  const display =
+    verdictStyles[item.verdict as keyof typeof verdictStyles] ||
+    verdictStyles.inconclusive;
+  const confidence =
+    typeof item.confidence === "number"
+      ? `${Math.round(item.confidence * 100)}% CONFIDENCE`
+      : "AI REVIEW";
+
+  return {
+    videoUrl: item.video_url,
+    verdict: display.label,
+    color: display.color,
+    confidence,
+    meta: [
+      item.level_of_play,
+      item.league,
+      item.referee_name ? `Ref: ${item.referee_name}` : null,
+    ]
+      .filter(Boolean)
+      .join(" • "),
+    title: item.original_call || item.call_type || "Uploaded Basketball Call",
+    description:
+      item.reasoning ||
+      "This uploaded call was analyzed by RefCheck AI and saved from the live review database.",
+    rule: item.rule_id ? `NBA rule cited: ${item.rule_id}` : "Rule cited by AI review",
+    fairVotes: item.votes_fair || 0,
+    badVotes: item.votes_bad || 0,
+  };
+}
 
 export default function ControversialCall() {
+  const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    getFeedItems()
+      .then((items) => setFeedItems(items))
+      .finally(() => setIsLoaded(true));
+  }, []);
+
+  const featuredCall = useMemo(() => {
+    const diegoCall = feedItems.find(
+      (item) => item.referee_name?.trim().toLowerCase() === "diego martinez",
+    );
+    return diegoCall ? callFromFeedItem(diegoCall) : fallbackCall;
+  }, [feedItems]);
+
   return (
     <section className="max-w-7xl mx-auto px-4 py-16 relative">
       <div className="flex items-center gap-4 mb-8">
@@ -14,34 +85,52 @@ export default function ControversialCall() {
       </div>
       <div className="bg-white rounded-xl shadow-[8px_8px_0_0_rgba(0,0,0,0.15)] p-6 transform -rotate-1 hover:rotate-0 transition-transform border-2 border-black/5">
         <div className="bg-gradient-to-br from-gray-100 to-gray-200 aspect-video rounded-lg mb-6 flex items-center justify-center relative overflow-hidden">
-          <div className="absolute inset-0 bg-black/10"></div>
-          <div className="relative z-10 text-center">
-            <div className="text-6xl mb-2">🏀</div>
-            <span className="text-gray-600">Click to watch</span>
-          </div>
+          {featuredCall.videoUrl ? (
+            <video
+              src={featuredCall.videoUrl}
+              controls
+              playsInline
+              preload="metadata"
+              className="absolute inset-0 h-full w-full bg-black object-contain"
+            />
+          ) : (
+            <>
+              <div className="absolute inset-0 bg-black/10"></div>
+              <div className="relative z-10 text-center">
+                <div className="text-6xl mb-2">🏀</div>
+                <span className="text-gray-600">
+                  {isLoaded ? "Demo preview" : "Loading featured clip..."}
+                </span>
+              </div>
+            </>
+          )}
         </div>
         <div className="flex items-center justify-between mb-6">
-          <div className="bg-[#E63946] text-white px-6 py-2 rounded-md inline-block transform rotate-1 shadow-[3px_3px_0_0_rgba(0,0,0,0.2)]">
-            BAD CALL
+          <div
+            className="text-white px-6 py-2 rounded-md inline-block transform rotate-1 shadow-[3px_3px_0_0_rgba(0,0,0,0.2)]"
+            style={{ backgroundColor: featuredCall.color }}
+          >
+            {featuredCall.verdict}
           </div>
-          <div className="font-mono bg-black text-white px-4 py-2 rounded">89% CONFIDENCE</div>
+          <div className="font-mono bg-black text-white px-4 py-2 rounded">{featuredCall.confidence}</div>
         </div>
-        <div className="font-mono text-sm mb-2 opacity-60">High School - Division 1 • State Championship • Q4 2:34</div>
-        <h3 className="text-xl mb-3">Questionable Offensive Foul Call</h3>
+        <div className="font-mono text-sm mb-2 opacity-60">
+          {featuredCall.meta || "Uploaded Basketball Clip"}
+        </div>
+        <h3 className="text-xl mb-3">{featuredCall.title}</h3>
         <p className="text-gray-600 mb-6 leading-relaxed">
-          Questionable offensive foul called during crucial possession in the state championship finals.
-          AI analysis suggests defensive player was still moving and had not established legal guarding position.
+          {featuredCall.description}
         </p>
         <div className="border-l-4 border-[#F6B40F] pl-4 bg-[#FFF9E6] p-4 rounded transform -rotate-1">
           <p className="font-mono text-xs mb-2 opacity-70">RULE CITED</p>
-          <p className="text-sm">NFHS Rule 4-7-2: Blocking Foul vs. Charging</p>
+          <p className="text-sm">{featuredCall.rule}</p>
         </div>
         <div className="mt-6 flex gap-4">
           <button className="flex-1 bg-[#2DBF4F] text-white py-3 rounded-lg hover:bg-[#25a643] transition-colors">
-            👍 Fair Call (142)
+            👍 Fair Call ({featuredCall.fairVotes})
           </button>
           <button className="flex-1 bg-[#E63946] text-white py-3 rounded-lg hover:bg-[#d1303c] transition-colors">
-            👎 Bad Call (891)
+            👎 Bad Call ({featuredCall.badVotes})
           </button>
         </div>
       </div>

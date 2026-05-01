@@ -85,6 +85,7 @@ type FeedClip = {
   id: number;
   clipId?: string;
   videoUrl?: string | null;
+  isLiveUpload?: boolean;
   game: string;
   league: string;
   quarter: string;
@@ -106,6 +107,8 @@ const verdictDisplay = {
   inconclusive: { label: "INCONCLUSIVE", color: "#F6B40F" },
 };
 
+const refSlug = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
+
 function realItemToClip(item: FeedItem): FeedClip {
   const fair = item.votes_fair || 34;
   const bad = item.votes_bad || 33;
@@ -119,6 +122,7 @@ function realItemToClip(item: FeedItem): FeedClip {
     id: Number.parseInt(item.clip_id.slice(0, 8), 16) || item.clip_id.length,
     clipId: item.clip_id,
     videoUrl: item.video_url,
+    isLiveUpload: true,
     game: item.league || item.level_of_play || "Uploaded Basketball Clip",
     league: item.level_of_play || item.league || "Basketball",
     quarter: new Date(item.created_at).toLocaleDateString(),
@@ -276,13 +280,25 @@ export default function Feed() {
                 <button
                   onClick={() => setSelectedClipId(clip.id)}
                   className="bg-gradient-to-br from-gray-100 to-gray-200 w-64 h-36 rounded-lg flex items-center justify-center flex-shrink-0 relative group cursor-pointer overflow-hidden"
+                  aria-label={`Preview ${clip.game}`}
                 >
-                  <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-colors"></div>
+                  {clip.videoUrl ? (
+                    <video
+                      src={clip.videoUrl}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 bg-gradient-to-br from-gray-100 to-gray-300" />
+                  )}
+                  <div className="absolute inset-0 bg-black/25 group-hover:bg-black/35 transition-colors"></div>
                   <div className="relative z-10 text-5xl group-hover:scale-110 transition-transform">
                     ▶️
                   </div>
-                  <span className="absolute bottom-2 left-2 bg-black/70 text-white text-xs font-mono px-2 py-1 rounded">
-                    Preview
+                  <span className="absolute bottom-2 left-2 bg-black/75 text-white text-xs font-mono px-2 py-1 rounded">
+                    {clip.isLiveUpload ? "Uploaded Clip" : "Demo Preview"}
                   </span>
                 </button>
 
@@ -300,7 +316,7 @@ export default function Feed() {
                         <span>{clip.call}</span>
                       </div>
                       <a
-                        href={`/ref/${clip.ref.toLowerCase().replace(' ', '-')}`}
+                        href={`/ref/${refSlug(clip.ref)}`}
                         className="text-sm text-blue-600 hover:underline mt-1 inline-block"
                       >
                         Ref: {clip.ref}
