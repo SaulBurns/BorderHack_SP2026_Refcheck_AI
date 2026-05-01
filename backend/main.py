@@ -42,14 +42,27 @@ allowed_origins = [
     "http://127.0.0.1:3001",
     "http://localhost:3002",
     "http://127.0.0.1:3002",
+    "https://border-hack-sp-2026-refcheck-ai.vercel.app",
 ]
 frontend_origin = os.getenv("FRONTEND_ORIGIN")
 if frontend_origin:
-    allowed_origins.append(frontend_origin)
+    allowed_origins.extend(
+        origin.strip()
+        for origin in frontend_origin.split(",")
+        if origin.strip()
+    )
+cors_origins = os.getenv("CORS_ORIGINS")
+if cors_origins:
+    allowed_origins.extend(
+        origin.strip()
+        for origin in cors_origins.split(",")
+        if origin.strip()
+    )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=sorted(set(allowed_origins)),
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
