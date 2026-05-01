@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import Link from "next/link";
 
 export default function Hero() {
   return (
@@ -15,7 +15,7 @@ export default function Hero() {
         From NBA to rec league — was the call fair? Let the AI and the crowd decide.
       </p>
       <Link
-        to="/upload"
+        href="/upload"
         className="inline-block bg-black text-white px-10 py-4 rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,1)] hover:shadow-[6px_6px_0_0_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all text-lg"
       >
         Upload a Clip 📹

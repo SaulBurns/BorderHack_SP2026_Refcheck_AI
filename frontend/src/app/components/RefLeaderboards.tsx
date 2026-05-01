@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import Link from "next/link";
 
 const topRefs = [
   { name: "Sarah Mitchell", sport: "Basketball", league: "NCAA D1", rating: 4.8, trend: "up" },
@@ -29,7 +29,7 @@ export default function RefLeaderboards() {
             {topRefs.map((ref, idx) => (
               <Link
                 key={idx}
-                to={`/ref/${ref.name.toLowerCase().replace(' ', '-')}`}
+                href={`/ref/${ref.name.toLowerCase().replace(' ', '-')}`}
                 className="bg-white rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,0.1)] p-4 flex items-center justify-between transform hover:rotate-1 transition-transform block"
               >
                 <div className="flex items-center gap-4">
@@ -64,7 +64,7 @@ export default function RefLeaderboards() {
             {controversialRefs.map((ref, idx) => (
               <Link
                 key={idx}
-                to={`/ref/${ref.name.toLowerCase().replace(' ', '-')}`}
+                href={`/ref/${ref.name.toLowerCase().replace(' ', '-')}`}
                 className="bg-white rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,0.1)] p-4 flex items-center justify-between transform hover:-rotate-1 transition-transform block"
               >
                 <div className="flex items-center gap-4">
@@ -92,7 +92,7 @@ export default function RefLeaderboards() {
       {/* View Full Leaderboard */}
       <div className="text-center mt-8">
         <Link
-          to="/leaderboard"
+          href="/leaderboard"
           className="inline-block bg-black text-white px-8 py-3 rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,0.2)] hover:shadow-[6px_6px_0_0_rgba(0,0,0,0.2)] transition-all transform -rotate-1 hover:rotate-0"
         >
           View Full Leaderboard →

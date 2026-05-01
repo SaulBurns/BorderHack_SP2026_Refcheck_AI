@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import Link from "next/link";
 
 export default function ControversialCall() {
   return (
@@ -49,7 +49,7 @@ export default function ControversialCall() {
       {/* See All Link */}
       <div className="text-center mt-8">
         <Link
-          to="/feed"
+          href="/feed"
           className="inline-block bg-black text-white px-8 py-3 rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,0.2)] hover:shadow-[6px_6px_0_0_rgba(0,0,0,0.2)] transition-all transform rotate-1 hover:rotate-0"
         >
           See All Hot Takes →

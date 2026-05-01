@@ -1,6 +1,8 @@
+"use client";
+
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
-import { analyzeClip, cacheVerdict } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { analyzeClip, cacheVerdict } from "../../lib/api";
 
 const sports = [
   { id: "basketball", name: "Basketball", emoji: "🏀", active: true },
@@ -28,7 +30,7 @@ const loadingSteps = [
 ];
 
 export default function Upload() {
-  const navigate = useNavigate();
+  const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [selectedSport, setSelectedSport] = useState("basketball");
@@ -82,7 +84,7 @@ export default function Upload() {
         level: level || undefined,
       });
       cacheVerdict(response.clip_id, response);
-      navigate(`/verdict/${response.clip_id}`);
+      router.push(`/verdict/${response.clip_id}`);
     } catch (err) {
       setAnalyzing(false);
       setError(err instanceof Error ? err.message : String(err));

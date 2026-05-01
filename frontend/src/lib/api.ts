@@ -1,12 +1,7 @@
 // src/lib/api.ts
 import type { AnalyzeResponse } from "./types";
 
-// Vite env var convention. Set VITE_API_BASE in .env.local
-// Cast through unknown to avoid needing the vite/client types reference
-// (the Figma export's tsconfig may or may not include it).
-const API_BASE: string =
-  ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE) ??
-  "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
 export interface AnalyzeParams {
   file: File;

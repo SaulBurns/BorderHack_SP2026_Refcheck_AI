@@ -1,12 +1,15 @@
+"use client";
+
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router";
-import { getCachedVerdict } from "@/lib/api";
-import type { AnalyzeResponse, Verdict as VerdictType } from "@/lib/types";
-import { VERDICT_COLOR, VERDICT_LABEL } from "@/lib/types";
+import { useParams, useRouter } from "next/navigation";
+import { getCachedVerdict } from "../../lib/api";
+import type { AnalyzeResponse, Verdict as VerdictType } from "../../lib/types";
+import { VERDICT_COLOR, VERDICT_LABEL } from "../../lib/types";
 
 export default function Verdict() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const id = params.id;
 
   const [showAdjudicators, setShowAdjudicators] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
@@ -29,7 +32,7 @@ export default function Verdict() {
             This clip hasn't been analyzed in this session. Upload a video to get a fresh verdict.
           </p>
           <button
-            onClick={() => navigate("/upload")}
+            onClick={() => router.push("/upload")}
             className="bg-black text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors"
           >
             Analyze a clip →
