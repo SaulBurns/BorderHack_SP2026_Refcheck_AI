@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: refcheck-backend
+    env: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: bash build.sh
+    startCommand: uvicorn app.api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      # Set these two in the Render dashboard → Environment → Secret Files / Env Vars.
+      # Do NOT commit actual values here.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
