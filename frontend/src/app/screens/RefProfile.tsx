@@ -43,6 +43,12 @@ const recentCalls = [
 
 export default function RefProfile() {
   const [showRatingForm, setShowRatingForm] = useState(false);
+  const [ratingValues, setRatingValues] = useState<Record<string, number>>({});
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const [selectedCallId, setSelectedCallId] = useState<number | null>(null);
+  const [callVotes, setCallVotes] = useState<
+    Record<number, { fairVotes: number; badVotes: number; inconclusiveVotes: number; userVote?: "fair" | "bad" | "inconclusive" }>
+  >({});
 
   const ref = {
     name: "John Smith",
@@ -61,6 +67,48 @@ export default function RefProfile() {
     },
     strengths: ["Out of bounds calls", "Clock management", "Player communication"],
     weaknesses: ["Charging/blocking decisions", "Late-game pressure situations"],
+  };
+
+  const getCallVotes = (call: (typeof recentCalls)[number]) =>
+    callVotes[call.id] || {
+      fairVotes: call.fairVotes,
+      badVotes: call.badVotes,
+      inconclusiveVotes: call.inconclusiveVotes,
+    };
+
+  const handleCallVote = (
+    call: (typeof recentCalls)[number],
+    vote: "fair" | "bad" | "inconclusive",
+  ) => {
+    const current = getCallVotes(call);
+    const previousVote = callVotes[call.id]?.userVote;
+    const next = { ...current, userVote: vote };
+    const keyByVote = {
+      fair: "fairVotes",
+      bad: "badVotes",
+      inconclusive: "inconclusiveVotes",
+    } as const;
+
+    if (previousVote && previousVote !== vote) {
+      next[keyByVote[previousVote]] = Math.max(0, next[keyByVote[previousVote]] - 1);
+    }
+    if (previousVote !== vote) {
+      next[keyByVote[vote]] = next[keyByVote[vote]] + 1;
+    }
+    setCallVotes((prev) => ({ ...prev, [call.id]: next }));
+  };
+
+  const submitRating = () => {
+    localStorage.setItem(
+      `refcheck:ref-rating:${ref.name}`,
+      JSON.stringify({
+        ref_name: ref.name,
+        ratings: ratingValues,
+        submitted_at: new Date().toISOString(),
+      }),
+    );
+    setRatingSubmitted(true);
+    setShowRatingForm(false);
   };
 
   return (
@@ -146,7 +194,8 @@ export default function RefProfile() {
         <h2 className="font-marker text-4xl mb-6 transform -rotate-1">Recent Analyzed Calls</h2>
         <div className="space-y-4">
           {recentCalls.map(call => {
-            const totalVotes = call.fairVotes + call.badVotes + call.inconclusiveVotes;
+            const totals = getCallVotes(call);
+            const totalVotes = totals.fairVotes + totals.badVotes + totals.inconclusiveVotes;
             return (
               <div
                 key={call.id}
@@ -179,20 +228,23 @@ export default function RefProfile() {
                       <div className="flex gap-2 text-sm">
                         <div className="flex items-center gap-1">
                           <span className="text-[#2DBF4F]">👍 Fair:</span>
-                          <span>{Math.round((call.fairVotes / totalVotes) * 100)}%</span>
+                          <span>{Math.round((totals.fairVotes / totalVotes) * 100)}%</span>
                         </div>
                         <div className="flex items-center gap-1">
                           <span className="text-[#E63946]">👎 Bad:</span>
-                          <span>{Math.round((call.badVotes / totalVotes) * 100)}%</span>
+                          <span>{Math.round((totals.badVotes / totalVotes) * 100)}%</span>
                         </div>
                         <div className="flex items-center gap-1">
                           <span className="text-[#F6B40F]">❓ Unclear:</span>
-                          <span>{Math.round((call.inconclusiveVotes / totalVotes) * 100)}%</span>
+                          <span>{Math.round((totals.inconclusiveVotes / totalVotes) * 100)}%</span>
                         </div>
                       </div>
                     </div>
 
-                    <button className="bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors text-sm">
+                    <button
+                      onClick={() => setSelectedCallId(call.id)}
+                      className="bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors text-sm"
+                    >
                       Watch & Vote →
                     </button>
                   </div>
@@ -222,7 +274,15 @@ export default function RefProfile() {
                 </label>
                 <div className="flex gap-2">
                   {[1, 2, 3, 4, 5].map(star => (
-                    <button key={star} className="text-4xl hover:scale-110 transition-transform">
+                    <button
+                      key={star}
+                      onClick={() =>
+                        setRatingValues((prev) => ({ ...prev, [dimension]: star }))
+                      }
+                      className={`text-4xl hover:scale-110 transition-transform ${
+                        star <= (ratingValues[dimension] || 0) ? "" : "grayscale opacity-40"
+                      }`}
+                    >
                       ⭐
                     </button>
                   ))}
@@ -264,13 +324,69 @@ export default function RefProfile() {
               >
                 Cancel
               </button>
-              <button className="flex-1 bg-black text-white py-3 rounded-lg hover:bg-gray-800 transition-colors">
+              <button
+                onClick={submitRating}
+                className="flex-1 bg-black text-white py-3 rounded-lg hover:bg-gray-800 transition-colors"
+              >
                 Submit Rating
               </button>
             </div>
           </div>
         )}
+        {ratingSubmitted && (
+          <p className="mt-4 text-sm font-mono text-[#2DBF4F]">
+            Rating saved. Thanks for the review.
+          </p>
+        )}
       </div>
+      {selectedCallId !== null && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-[12px_12px_0_0_rgba(0,0,0,0.3)]">
+            {(() => {
+              const call = recentCalls.find((item) => item.id === selectedCallId);
+              if (!call) return null;
+              const userVote = callVotes[call.id]?.userVote;
+              return (
+                <>
+                  <div className="aspect-video bg-gray-200 rounded-lg flex items-center justify-center mb-4">
+                    <span className="text-6xl">▶️</span>
+                  </div>
+                  <h2 className="font-marker text-3xl mb-2">{call.game}</h2>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {call.league} · {call.quarter} · {call.call}
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    <button
+                      onClick={() => handleCallVote(call, "fair")}
+                      className={`py-3 rounded-lg text-white ${userVote === "fair" ? "bg-[#25a643]" : "bg-[#2DBF4F]"}`}
+                    >
+                      Fair
+                    </button>
+                    <button
+                      onClick={() => handleCallVote(call, "bad")}
+                      className={`py-3 rounded-lg text-white ${userVote === "bad" ? "bg-[#d1303c]" : "bg-[#E63946]"}`}
+                    >
+                      Bad
+                    </button>
+                    <button
+                      onClick={() => handleCallVote(call, "inconclusive")}
+                      className={`py-3 rounded-lg text-white ${userVote === "inconclusive" ? "bg-[#e0a20e]" : "bg-[#F6B40F]"}`}
+                    >
+                      Unclear
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setSelectedCallId(null)}
+                    className="w-full bg-black text-white py-3 rounded-lg hover:bg-gray-800 transition-colors"
+                  >
+                    Done
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

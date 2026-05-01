@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 const clips = [
   {
@@ -82,6 +82,66 @@ const clips = [
 
 export default function Feed() {
   const [filter, setFilter] = useState("all-time");
+  const [visibleCount, setVisibleCount] = useState(3);
+  const [selectedClipId, setSelectedClipId] = useState<number | null>(null);
+  const [votes, setVotes] = useState<
+    Record<number, { fair: number; bad: number; inconclusive: number; userVote?: "fair" | "bad" | "inconclusive" }>
+  >({});
+
+  const displayedClips = useMemo(() => {
+    let next = clips;
+    if (filter === "professional") {
+      next = clips.filter((clip) => /EuroLeague|Conference/.test(clip.game) || /EuroLeague|Professional/.test(clip.league));
+    } else if (filter === "college") {
+      next = clips.filter((clip) => /NCAA|College/.test(clip.league));
+    } else if (filter === "high-school") {
+      next = clips.filter((clip) => /High School/.test(clip.league));
+    } else if (filter === "disagreement") {
+      next = [...clips].sort((a, b) => (a.aiVsCrowd === "DISAGREE" ? -1 : 1) - (b.aiVsCrowd === "DISAGREE" ? -1 : 1));
+    } else if (filter === "today") {
+      next = clips.slice(0, 2);
+    } else if (filter === "week") {
+      next = clips.slice(0, 4);
+    }
+    return next.slice(0, visibleCount);
+  }, [filter, visibleCount]);
+
+  const getVoteTotals = (clip: (typeof clips)[number]) => {
+    const override = votes[clip.id];
+    if (override) return override;
+    return {
+      fair: clip.fairPercent,
+      bad: clip.badPercent,
+      inconclusive: clip.inconclusivePercent,
+    };
+  };
+
+  const handleVote = (clip: (typeof clips)[number], vote: "fair" | "bad" | "inconclusive") => {
+    const current = getVoteTotals(clip);
+    const previousVote = votes[clip.id]?.userVote;
+    const next = {
+      fair: current.fair,
+      bad: current.bad,
+      inconclusive: current.inconclusive,
+      userVote: vote,
+    };
+    if (previousVote && previousVote !== vote) {
+      next[previousVote] = Math.max(0, next[previousVote] - 4);
+    }
+    if (previousVote !== vote) {
+      next[vote] = next[vote] + 4;
+    }
+    const total = next.fair + next.bad + next.inconclusive;
+    setVotes((prev) => ({
+      ...prev,
+      [clip.id]: {
+        fair: Math.round((next.fair / total) * 100),
+        bad: Math.round((next.bad / total) * 100),
+        inconclusive: Math.max(1, 100 - Math.round((next.fair / total) * 100) - Math.round((next.bad / total) * 100)),
+        userVote: vote,
+      },
+    }));
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-16">
@@ -123,7 +183,10 @@ export default function Feed() {
 
       {/* Feed */}
       <div className="space-y-6">
-        {clips.map((clip, idx) => (
+        {displayedClips.map((clip, idx) => {
+          const voteTotals = getVoteTotals(clip);
+          const userVote = votes[clip.id]?.userVote;
+          return (
           <div
             key={clip.id}
             className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] overflow-hidden border-2 border-black/5 transform hover:scale-[1.01] transition-all"
@@ -132,12 +195,18 @@ export default function Feed() {
             <div className="p-6">
               <div className="flex gap-6">
                 {/* Video Thumbnail */}
-                <div className="bg-gradient-to-br from-gray-100 to-gray-200 w-64 h-36 rounded-lg flex items-center justify-center flex-shrink-0 relative group cursor-pointer">
+                <button
+                  onClick={() => setSelectedClipId(clip.id)}
+                  className="bg-gradient-to-br from-gray-100 to-gray-200 w-64 h-36 rounded-lg flex items-center justify-center flex-shrink-0 relative group cursor-pointer overflow-hidden"
+                >
                   <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-colors"></div>
                   <div className="relative z-10 text-5xl group-hover:scale-110 transition-transform">
                     ▶️
                   </div>
-                </div>
+                  <span className="absolute bottom-2 left-2 bg-black/70 text-white text-xs font-mono px-2 py-1 rounded">
+                    Preview
+                  </span>
+                </button>
 
                 {/* Content */}
                 <div className="flex-1">
@@ -175,21 +244,21 @@ export default function Feed() {
                     <div className="flex h-8 rounded-lg overflow-hidden border-2 border-black/10">
                       <div
                         className="bg-[#2DBF4F] flex items-center justify-center text-white text-xs font-mono"
-                        style={{ width: `${clip.fairPercent}%` }}
+                        style={{ width: `${voteTotals.fair}%` }}
                       >
-                        {clip.fairPercent > 10 && `Fair ${clip.fairPercent}%`}
+                        {voteTotals.fair > 10 && `Fair ${voteTotals.fair}%`}
                       </div>
                       <div
                         className="bg-[#E63946] flex items-center justify-center text-white text-xs font-mono"
-                        style={{ width: `${clip.badPercent}%` }}
+                        style={{ width: `${voteTotals.bad}%` }}
                       >
-                        {clip.badPercent > 10 && `Bad ${clip.badPercent}%`}
+                        {voteTotals.bad > 10 && `Bad ${voteTotals.bad}%`}
                       </div>
                       <div
                         className="bg-[#F6B40F] flex items-center justify-center text-white text-xs font-mono"
-                        style={{ width: `${clip.inconclusivePercent}%` }}
+                        style={{ width: `${voteTotals.inconclusive}%` }}
                       >
-                        {clip.inconclusivePercent > 10 && `? ${clip.inconclusivePercent}%`}
+                        {voteTotals.inconclusive > 10 && `? ${voteTotals.inconclusive}%`}
                       </div>
                     </div>
                   </div>
@@ -213,17 +282,29 @@ export default function Feed() {
                   {/* Actions */}
                   <div className="flex items-center gap-3">
                     <div className="flex gap-2 flex-1">
-                      <button className="flex-1 bg-[#2DBF4F] text-white py-2 px-3 rounded-lg hover:bg-[#25a643] transition-colors text-sm">
+                      <button
+                        onClick={() => handleVote(clip, "fair")}
+                        className={`flex-1 text-white py-2 px-3 rounded-lg transition-colors text-sm ${userVote === "fair" ? "bg-[#25a643] ring-4 ring-[#2DBF4F]/20" : "bg-[#2DBF4F] hover:bg-[#25a643]"}`}
+                      >
                         👍 Fair
                       </button>
-                      <button className="flex-1 bg-[#E63946] text-white py-2 px-3 rounded-lg hover:bg-[#d1303c] transition-colors text-sm">
+                      <button
+                        onClick={() => handleVote(clip, "bad")}
+                        className={`flex-1 text-white py-2 px-3 rounded-lg transition-colors text-sm ${userVote === "bad" ? "bg-[#d1303c] ring-4 ring-[#E63946]/20" : "bg-[#E63946] hover:bg-[#d1303c]"}`}
+                      >
                         👎 Bad
                       </button>
-                      <button className="flex-1 bg-[#F6B40F] text-white py-2 px-3 rounded-lg hover:bg-[#e0a20e] transition-colors text-sm">
+                      <button
+                        onClick={() => handleVote(clip, "inconclusive")}
+                        className={`flex-1 text-white py-2 px-3 rounded-lg transition-colors text-sm ${userVote === "inconclusive" ? "bg-[#e0a20e] ring-4 ring-[#F6B40F]/20" : "bg-[#F6B40F] hover:bg-[#e0a20e]"}`}
+                      >
                         ❓ Unclear
                       </button>
                     </div>
-                    <button className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-sm">
+                    <button
+                      onClick={() => setSelectedClipId(clip.id)}
+                      className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                    >
                       💬 {clip.comments}
                     </button>
                   </div>
@@ -231,15 +312,48 @@ export default function Feed() {
               </div>
             </div>
           </div>
-        ))}
+        )})}
       </div>
 
       {/* Load More */}
       <div className="text-center mt-12">
-        <button className="bg-black text-white px-8 py-4 rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,0.2)] hover:shadow-[6px_6px_0_0_rgba(0,0,0,0.2)] transition-all transform rotate-1 hover:rotate-0">
-          Load More Clips ↓
+        <button
+          onClick={() => setVisibleCount((count) => Math.min(clips.length, count + 2))}
+          disabled={visibleCount >= clips.length}
+          className="bg-black text-white px-8 py-4 rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,0.2)] hover:shadow-[6px_6px_0_0_rgba(0,0,0,0.2)] transition-all transform rotate-1 hover:rotate-0 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {visibleCount >= clips.length ? "All Clips Loaded" : "Load More Clips ↓"}
         </button>
       </div>
+      {selectedClipId !== null && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-[12px_12px_0_0_rgba(0,0,0,0.3)]">
+            <div className="aspect-video bg-gradient-to-br from-gray-100 to-gray-300 rounded-lg flex items-center justify-center mb-4">
+              <span className="text-6xl">▶️</span>
+            </div>
+            <h2 className="font-marker text-3xl mb-2">
+              {clips.find((clip) => clip.id === selectedClipId)?.game}
+            </h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Demo feed clips are community examples. Upload your own clip for real AI playback and analysis.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setSelectedClipId(null)}
+                className="flex-1 bg-gray-200 py-3 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Close
+              </button>
+              <a
+                href="/upload"
+                className="flex-1 bg-black text-white py-3 rounded-lg hover:bg-gray-800 transition-colors text-center"
+              >
+                Analyze a Clip
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -99,10 +99,28 @@ const refs = [
 export default function Leaderboard() {
   const [sortBy, setSortBy] = useState("highest");
   const [searchQuery, setSearchQuery] = useState("");
+  const [levelFilter, setLevelFilter] = useState("All Levels");
 
-  const filteredRefs = refs.filter(ref =>
-    ref.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredRefs = refs
+    .filter((ref) =>
+      ref.name.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    .filter((ref) => {
+      if (levelFilter === "All Levels") return true;
+      if (levelFilter === "Professional") {
+        return /EuroLeague|WNBA|G League|FIBA|B\.League/.test(ref.league);
+      }
+      return ref.league.includes(levelFilter);
+    })
+    .sort((a, b) => {
+      if (sortBy === "active") return b.aiCallsAnalyzed - a.aiCallsAnalyzed;
+      if (sortBy === "controversial") return a.aiAgreement - b.aiAgreement;
+      if (sortBy === "improved") {
+        const trendScore = { up: 2, neutral: 1, down: 0 };
+        return trendScore[b.trend as keyof typeof trendScore] - trendScore[a.trend as keyof typeof trendScore];
+      }
+      return b.rating - a.rating;
+    });
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-16">
@@ -121,9 +139,10 @@ export default function Leaderboard() {
               {['All Levels', 'Professional', 'College', 'High School', 'Youth', 'Rec'].map(level => (
                 <button
                   key={level}
+                  onClick={() => setLevelFilter(level)}
                   className={`
                     px-4 py-2 rounded-lg border-2 text-sm transition-all
-                    ${level === 'All Levels'
+                    ${level === levelFilter
                       ? 'bg-black text-white border-black'
                       : 'bg-white border-black/10 hover:border-black/30'
                     }

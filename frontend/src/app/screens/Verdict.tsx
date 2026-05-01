@@ -14,6 +14,15 @@ export default function Verdict() {
   const [showAdjudicators, setShowAdjudicators] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [data, setData] = useState<AnalyzeResponse | null>(null);
+  const [helpfulVote, setHelpfulVote] = useState<"yes" | "no" | null>(null);
+  const [shareStatus, setShareStatus] = useState("");
+  const [ratingValues, setRatingValues] = useState<Record<string, number>>({
+    Consistency: 0,
+    "Game Awareness": 0,
+    Communication: 0,
+    Fairness: 0,
+  });
+  const [ratingSaved, setRatingSaved] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -50,6 +59,43 @@ export default function Verdict() {
   };
   const confidencePct = Math.round(v.confidence * 100);
   const clipSrc = data.clip_url ? resolveApiUrl(data.clip_url) : null;
+
+  const handleHelpfulVote = (vote: "yes" | "no") => {
+    setHelpfulVote(vote);
+    localStorage.setItem(`refcheck:helpful:${id}`, vote);
+  };
+
+  const handleShare = async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: "RefCheck AI verdict",
+          text: `${banner.label} · ${confidencePct}% confidence`,
+          url,
+        });
+        setShareStatus("Shared");
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      setShareStatus("Link copied");
+    } catch {
+      setShareStatus("Share canceled");
+    }
+  };
+
+  const handleSubmitRating = () => {
+    localStorage.setItem(
+      `refcheck:rating:${id}`,
+      JSON.stringify({
+        clip_id: id,
+        ratings: ratingValues,
+        submitted_at: new Date().toISOString(),
+      }),
+    );
+    setRatingSaved(true);
+    setShowRatingModal(false);
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-12">
@@ -194,13 +240,28 @@ export default function Verdict() {
         <div className="bg-white rounded-xl shadow-[4px_4px_0_0_rgba(0,0,0,0.1)] p-6 border-2 border-black/5">
           <h3 className="mb-4">Was this analysis helpful?</h3>
           <div className="flex gap-3">
-            <button className="flex-1 bg-[#2DBF4F] text-white py-3 rounded-lg hover:bg-[#25a643] transition-colors">
-              👍 Yes
+            <button
+              onClick={() => handleHelpfulVote("yes")}
+              className={`flex-1 text-white py-3 rounded-lg transition-colors ${
+                helpfulVote === "yes" ? "bg-[#25a643] ring-4 ring-[#2DBF4F]/20" : "bg-[#2DBF4F] hover:bg-[#25a643]"
+              }`}
+            >
+              👍 {helpfulVote === "yes" ? "Marked helpful" : "Yes"}
             </button>
-            <button className="flex-1 bg-[#E63946] text-white py-3 rounded-lg hover:bg-[#d1303c] transition-colors">
-              👎 No
+            <button
+              onClick={() => handleHelpfulVote("no")}
+              className={`flex-1 text-white py-3 rounded-lg transition-colors ${
+                helpfulVote === "no" ? "bg-[#d1303c] ring-4 ring-[#E63946]/20" : "bg-[#E63946] hover:bg-[#d1303c]"
+              }`}
+            >
+              👎 {helpfulVote === "no" ? "Feedback saved" : "No"}
             </button>
           </div>
+          {helpfulVote && (
+            <p className="mt-3 text-xs font-mono text-gray-500">
+              Thanks. Your feedback is saved for this session.
+            </p>
+          )}
         </div>
         <div className="bg-white rounded-xl shadow-[4px_4px_0_0_rgba(0,0,0,0.1)] p-6 border-2 border-black/5">
           <h3 className="mb-4">Rate the ref</h3>
@@ -215,8 +276,11 @@ export default function Verdict() {
 
       {/* Share */}
       <div className="text-center">
-        <button className="bg-[#3B82F6] text-white px-8 py-4 rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,0.2)] hover:shadow-[6px_6px_0_0_rgba(0,0,0,0.2)] transition-all transform rotate-1 hover:rotate-0">
-          Share This Verdict 📤
+        <button
+          onClick={handleShare}
+          className="bg-[#3B82F6] text-white px-8 py-4 rounded-lg shadow-[4px_4px_0_0_rgba(0,0,0,0.2)] hover:shadow-[6px_6px_0_0_rgba(0,0,0,0.2)] transition-all transform rotate-1 hover:rotate-0"
+        >
+          {shareStatus || "Share This Verdict 📤"}
         </button>
       </div>
 
@@ -234,7 +298,12 @@ export default function Verdict() {
                       {[1, 2, 3, 4, 5].map((star) => (
                         <button
                           key={star}
-                          className="text-3xl hover:scale-110 transition-transform"
+                          onClick={() =>
+                            setRatingValues((prev) => ({ ...prev, [dimension]: star }))
+                          }
+                          className={`text-3xl hover:scale-110 transition-transform ${
+                            star <= ratingValues[dimension] ? "" : "grayscale opacity-40"
+                          }`}
                         >
                           ⭐
                         </button>
@@ -251,11 +320,19 @@ export default function Verdict() {
               >
                 Cancel
               </button>
-              <button className="flex-1 bg-black text-white py-3 rounded-lg hover:bg-gray-800 transition-colors">
+              <button
+                onClick={handleSubmitRating}
+                className="flex-1 bg-black text-white py-3 rounded-lg hover:bg-gray-800 transition-colors"
+              >
                 Submit
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {ratingSaved && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-black text-white px-5 py-3 rounded-lg shadow-lg font-mono text-sm z-50">
+          Ref rating saved
         </div>
       )}
     </div>
