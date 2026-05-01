@@ -56,6 +56,7 @@ export interface FinalVerdict {
 export interface AnalyzeResponse {
   verdict: FinalVerdict;
   clip_id: string;
+  clip_url?: string;
 }
 
 // Display helpers

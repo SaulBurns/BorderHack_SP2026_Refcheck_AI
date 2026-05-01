@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getCachedVerdict } from "../../lib/api";
+import { getCachedVerdict, resolveApiUrl } from "../../lib/api";
 import type { AnalyzeResponse, Verdict as VerdictType } from "../../lib/types";
 import { VERDICT_COLOR, VERDICT_LABEL } from "../../lib/types";
 
@@ -49,6 +49,7 @@ export default function Verdict() {
     color: VERDICT_COLOR[verdictKey],
   };
   const confidencePct = Math.round(v.confidence * 100);
+  const clipSrc = data.clip_url ? resolveApiUrl(data.clip_url) : null;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-12">
@@ -71,13 +72,28 @@ export default function Verdict() {
         </div>
       </div>
 
-      {/* Video Player placeholder */}
+      {/* Video Player */}
       <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-8 border-2 border-black/5">
-        <div className="bg-gradient-to-br from-gray-100 to-gray-200 aspect-video rounded-lg mb-4 flex items-center justify-center relative">
-          <div className="absolute inset-0 bg-black/20"></div>
-          <div className="relative z-10 text-center">
-            <div className="text-7xl mb-3">▶️</div>
-            <p className="text-gray-600">Clip playback (coming soon)</p>
+        <div className="aspect-video rounded-lg mb-4 overflow-hidden bg-black relative">
+          {clipSrc ? (
+            <video
+              src={clipSrc}
+              controls
+              playsInline
+              preload="metadata"
+              className="h-full w-full object-contain bg-black"
+            />
+          ) : (
+            <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center relative">
+              <div className="absolute inset-0 bg-black/20"></div>
+              <div className="relative z-10 text-center">
+                <div className="text-7xl mb-3">▶️</div>
+                <p className="text-gray-600">Clip playback unavailable</p>
+              </div>
+            </div>
+          )}
+          <div className="absolute left-3 top-3 bg-black/70 text-white text-xs font-mono px-2 py-1 rounded">
+            REVIEW CLIP
           </div>
         </div>
         {v.perception.moment_of_interest_seconds !== null && (

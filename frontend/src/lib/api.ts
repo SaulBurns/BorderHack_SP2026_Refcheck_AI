@@ -44,6 +44,13 @@ export async function checkHealth(): Promise<boolean> {
   }
 }
 
+export function resolveApiUrl(pathOrUrl: string): string {
+  if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+    return pathOrUrl;
+  }
+  return `${API_BASE}${pathOrUrl}`;
+}
+
 // Local persistence helpers — simple sessionStorage cache so the verdict page
 // can re-render without re-hitting the API.
 export function cacheVerdict(clipId: string, response: AnalyzeResponse): void {

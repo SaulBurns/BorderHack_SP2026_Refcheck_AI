@@ -1,0 +1,9 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/feed/page": "/feed",
+  "/leaderboard/page": "/leaderboard",
+  "/page": "/",
+  "/upload/page": "/upload",
+  "/ref/[slug]/page": "/ref/[slug]",
+  "/verdict/[id]/page": "/verdict/[id]"
+}
