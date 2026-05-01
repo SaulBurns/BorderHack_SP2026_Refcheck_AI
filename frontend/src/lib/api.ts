@@ -44,6 +44,33 @@ export async function checkHealth(): Promise<boolean> {
   }
 }
 
+export interface FeedItem {
+  clip_id: string;
+  video_url: string | null;
+  league: string | null;
+  level_of_play: string | null;
+  original_call: string | null;
+  referee_name: string | null;
+  verdict: "fair_call" | "bad_call" | "inconclusive" | string | null;
+  confidence: number | null;
+  call_type: string | null;
+  reasoning: string | null;
+  created_at: string;
+  votes_fair: number;
+  votes_bad: number;
+  votes_inconclusive: number;
+}
+
+export async function getFeedItems(): Promise<FeedItem[]> {
+  const res = await fetch(`${API_BASE}/api/feed?limit=20`, {
+    cache: "no-store",
+  });
+
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data.items) ? data.items : [];
+}
+
 export function resolveApiUrl(pathOrUrl: string): string {
   if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
     return pathOrUrl;

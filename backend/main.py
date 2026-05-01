@@ -11,6 +11,7 @@ except ImportError:
     load_dotenv = None
 
 from services.ai_analyzer import analyze_clip
+from services.supabase_store import list_feed, persist_analysis
 from services.video_processor import UPLOAD_DIR, save_uploaded_clip
 
 
@@ -86,6 +87,10 @@ def get_uploaded_clip(stored_name: str):
 
     return FileResponse(clip_path)
 
+@app.get("/api/feed")
+def api_feed(limit: int = 20):
+    return {"items": list_feed(limit=limit)}
+
 @app.post("/analyze")
 async def analyze_video(
     file: UploadFile = File(...),
@@ -96,8 +101,7 @@ async def analyze_video(
     referee_name: str | None = Form(None),
 ):
     video_metadata = await save_uploaded_clip(file)
-
-    return analyze_clip(
+    result = analyze_clip(
         file=file,
         sport=sport,
         level_of_play=level_of_play,
@@ -105,6 +109,15 @@ async def analyze_video(
         original_call=original_call,
         referee_name=referee_name,
         video_metadata=video_metadata,
+    )
+    return persist_analysis(
+        result=result,
+        video_metadata=video_metadata,
+        sport=sport,
+        level_of_play=level_of_play or "",
+        league=league or "",
+        original_call=original_call or "",
+        referee_name=referee_name or "",
     )
 
 @app.post("/api/analyze")
@@ -117,7 +130,7 @@ async def analyze_video_for_frontend(
     ref_name: str | None = Form(None),
 ):
     video_metadata = await save_uploaded_clip(file)
-    return analyze_clip(
+    result = analyze_clip(
         file=file,
         sport=sport,
         level_of_play=level,
@@ -125,4 +138,13 @@ async def analyze_video_for_frontend(
         original_call=original_call,
         referee_name=ref_name,
         video_metadata=video_metadata,
+    )
+    return persist_analysis(
+        result=result,
+        video_metadata=video_metadata,
+        sport=sport,
+        level_of_play=level or "",
+        league=league or "",
+        original_call=original_call or "",
+        referee_name=ref_name or "",
     )

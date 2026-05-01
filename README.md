@@ -7,6 +7,7 @@ Current stack:
 - Frontend: Next.js
 - Backend: FastAPI
 - Analysis: ffmpeg frame extraction + four-agent Claude pipeline with mock fallback
+- Optional persistence: Supabase Postgres + Supabase Storage
 
 Supported modes:
 
@@ -185,6 +186,43 @@ On Render:
 5. Add `ANTHROPIC_API_KEY` when using `anthropic`.
 
 Use `mock` until the backend deploy is healthy, then switch to a paid provider.
+
+### Optional Supabase Persistence
+
+Supabase lets uploaded videos and verdicts appear on the Hot Takes page after deployment.
+
+1. Create a Supabase project.
+2. Open Supabase SQL Editor.
+3. Run the SQL in:
+
+```text
+backend/supabase_schema.sql
+```
+
+4. Open Supabase Storage.
+5. Create a bucket named:
+
+```text
+clips
+```
+
+6. Make the `clips` bucket public so browser video playback works.
+7. In Supabase Project Settings, copy:
+   - Project URL
+   - Service role key
+
+8. In Render backend environment variables, add:
+
+```bash
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SUPABASE_CLIPS_BUCKET=clips
+SUPABASE_VERDICTS_TABLE=verdicts
+```
+
+Do not add the service role key to Vercel. It belongs only on the backend.
+
+After saving the Render env vars, redeploy the backend.
 
 ### Vercel Frontend
 
