@@ -1,5 +1,8 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+
+from services.mock_analyzer import analyze_clip
+from services.video_processor import save_uploaded_clip
 
 app = FastAPI()
 
@@ -16,16 +19,22 @@ def home():
     return {"message": "RefCheck AI backend is running"}
 
 @app.post("/analyze")
-async def analyze_video(file: UploadFile = File(...)):
-    return {
-        "verdict": "Inconclusive",
-        "confidence": "Low",
-        "call_type": "Block / Charge",
-        "reasoning": "The backend received the clip successfully. AI analysis will be added next.",
-        "rule_applied": "Legal guarding position",
-        "evidence": [
-            "Video uploaded successfully",
-            "Frame extraction not added yet",
-            "AI analysis pending"
-        ]
-    }
+async def analyze_video(
+    file: UploadFile = File(...),
+    sport: str = Form("Basketball"),
+    level_of_play: str | None = Form(None),
+    league: str | None = Form(None),
+    original_call: str | None = Form(None),
+    referee_name: str | None = Form(None),
+):
+    video_metadata = await save_uploaded_clip(file)
+
+    return analyze_clip(
+        file=file,
+        sport=sport,
+        level_of_play=level_of_play,
+        league=league,
+        original_call=original_call,
+        referee_name=referee_name,
+        video_metadata=video_metadata,
+    )
