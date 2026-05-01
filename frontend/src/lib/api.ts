@@ -88,3 +88,13 @@ export function getCachedVerdict(clipId: string): AnalyzeResponse | null {
   const raw = sessionStorage.getItem(`refcheck:verdict:${clipId}`);
   return raw ? (JSON.parse(raw) as AnalyzeResponse) : null;
 }
+
+// Persists the local blob URL (from URL.createObjectURL) for the uploaded video
+// so the verdict page can replay it without re-uploading.
+export function cacheLocalVideoUrl(clipId: string, blobUrl: string): void {
+  sessionStorage.setItem(`refcheck:localvideo:${clipId}`, blobUrl);
+}
+
+export function getCachedLocalVideoUrl(clipId: string): string | null {
+  return sessionStorage.getItem(`refcheck:localvideo:${clipId}`);
+}
