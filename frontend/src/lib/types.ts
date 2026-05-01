@@ -9,6 +9,7 @@ export interface PlayerObservation {
   role: PlayerRole;
   jersey_color: string | null;
   position_description: string;
+  court_zone?: string;
   body_state: string;
 }
 
@@ -21,6 +22,25 @@ export interface EventDescription {
   contact_location: string;
   ball_visible: boolean;
   ball_state: string;
+  offensive_control_status?: string;
+  defender_status?: {
+    primary_or_secondary: string;
+    legal_guarding_position: string;
+    feet_set_before_contact: boolean;
+    moving_direction: string;
+    inside_restricted_area: boolean;
+  };
+  court_geometry?: {
+    key_zone: string;
+    restricted_area_arc_visible: boolean;
+    defender_feet_visible: boolean;
+    basket_visible: boolean;
+  };
+  frame_observations?: Array<{
+    frame_index: number;
+    approx_time_seconds: number;
+    observation: string;
+  }>;
   moment_of_interest_seconds: number | null;
   impact_zone?: {
     x_percent: number;

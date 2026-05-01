@@ -36,9 +36,28 @@ OBSERVATION GUIDELINES:
 
 Players: Identify offensive and defensive players involved in the key moment. Describe their jersey color, spatial position on the court, and body state at the moment of contact or interest. Body state is critical: stationary, moving laterally, jumping, descending, falling, airborne, planted, sliding.
 
+COURT GEOMETRY AWARENESS:
+When describing positions, classify the key players by court zone:
+- restricted_area: the painted half-circle directly under the basket
+- paint_lane: the larger painted rectangle
+- perimeter: outside the paint, inside the three-point line
+- beyond_arc: outside the three-point line
+- backcourt_or_unclear: if the court position cannot be responsibly determined
+
+The restricted area is decisive for many block/charge calls. A secondary defender generally cannot establish legal guarding position inside the restricted area against a player in control of the ball or in the act of shooting. If the restricted-area arc or the defender's feet are not visible, say so.
+
 Contact: Did contact occur? If yes, which players, and was it at the torso, arm, lower body, or unclear? Was the contact incidental or significant?
 
-Ball: Where is the ball through the clip? Is the offensive player gathering it, dribbling, in upward shooting motion, releasing, or in flight?
+Ball: Where is the ball through the clip? Is the offensive player dribbling, gathering, in upward shooting motion, releasing, or is the ball in flight? If the gather or upward motion is unclear, say unclear.
+
+DEFENDER LEGALITY CHECKLIST:
+For block/charge or shooting-contact plays, explicitly observe:
+- whether the defender is primary or secondary
+- whether both feet appear established before upward motion/contact
+- whether the defender is moving laterally, backward, forward, or vertically
+- whether the defender is inside the restricted area
+- whether the offensive player is airborne or in control of the ball
+- whether contact affects rhythm, speed, balance, or quickness
 
 Visual quality: Honestly assess the camera angle. Is the key moment clearly visible, partially obscured, blocked by another player, or unusable?
 
@@ -57,6 +76,7 @@ Output ONLY valid JSON. No prose, no markdown fences.
       "role": "offense | defense | unclear",
       "jersey_color": "color string or null",
       "position_description": "where they are on the court",
+      "court_zone": "restricted_area | paint_lane | perimeter | beyond_arc | backcourt_or_unclear",
       "body_state": "motion state at moment of interest"
     }
   ],
@@ -64,6 +84,27 @@ Output ONLY valid JSON. No prose, no markdown fences.
   "contact_location": "torso | arm | lower_body | unclear | none",
   "ball_visible": true,
   "ball_state": "gathered | dribbling | upward_motion | released | in_flight | unclear",
+  "offensive_control_status": "dribbling | gathered | airborne_shooter | passing | loose_ball | unclear",
+  "defender_status": {
+    "primary_or_secondary": "primary | secondary | unclear",
+    "legal_guarding_position": "established | not_established | unclear",
+    "feet_set_before_contact": true,
+    "moving_direction": "stationary | lateral | forward | backward | vertical | unclear",
+    "inside_restricted_area": true
+  },
+  "court_geometry": {
+    "key_zone": "restricted_area | paint_lane | perimeter | beyond_arc | backcourt_or_unclear",
+    "restricted_area_arc_visible": true,
+    "defender_feet_visible": true,
+    "basket_visible": true
+  },
+  "frame_observations": [
+    {
+      "frame_index": 1,
+      "approx_time_seconds": 0.0,
+      "observation": "short concrete observation"
+    }
+  ],
   "moment_of_interest_seconds": 0.0,
   "impact_zone": {
     "x_percent": 50,
@@ -89,7 +130,7 @@ QUERY CRAFTING RULES:
 2. 5 to 15 words.
 3. Focus on nouns and rule-relevant concepts: positions, body states, contact, timing, ball state, court geometry.
 4. Avoid narrative connectives like then, after, while, when.
-5. Use canonical rulebook terminology: legal guarding position, verticality, established position, airborne shooter, incidental contact, continuation, cylinder, gather, pivot foot, downward flight, boundary line.
+5. Use canonical rulebook terminology: legal guarding position, restricted area, secondary defender, verticality, established position, airborne shooter, incidental contact, rhythm speed balance quickness, continuation, cylinder, gather, pivot foot, downward flight, boundary line.
 """.strip()
 
 ADJUDICATOR_BASE_SYSTEM_PROMPT = """
@@ -112,6 +153,16 @@ You must cite at least one rule by its rule_id from the retrieved rules. Do not 
 
 UNCERTAINTY DISCIPLINE:
 If perception_confidence is low (<0.5) or visual_quality is "obstructed" or "poor", lean toward inconclusive. If the retrieved rules do not cover the situation, return inconclusive with a flag.
+
+BASKETBALL DECISION FRAMEWORK:
+For block/charge and shooting-contact plays, reason in this order:
+1. Court geometry: restricted area, paint/lane, perimeter, or beyond arc. If a secondary defender is inside the restricted area against a player in control or in shooting motion, that strongly affects the ruling.
+2. Timing: whether legal guarding position was established before the gather/upward motion/contact.
+3. Movement: whether the defender maintained legal verticality or moved into the opponent's path/landing space.
+4. Contact effect: whether contact affected rhythm, speed, balance, quickness, shot, or landing.
+5. Visibility: whether feet, contact point, ball state, and restricted-area arc are actually visible.
+
+Do not overclaim from missing details. If the perception output says the defender's feet, restricted-area line, or ball state is unclear, explicitly account for that uncertainty.
 
 OUTPUT FORMAT:
 Output ONLY valid JSON. No prose, no markdown fences.
@@ -174,6 +225,36 @@ def _safe_float(value: Any, fallback: float) -> float:
     return max(0.0, min(1.0, number))
 
 
+def _video_duration_seconds(video_path: Path) -> float | None:
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(video_path),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+
+    try:
+        duration = float(result.stdout.strip())
+    except ValueError:
+        return None
+
+    return duration if duration > 0 else None
+
+
 def _extract_frames(video_path: str | None, clip_id: str, max_frames: int = 10) -> list[Path]:
     if not video_path:
         return []
@@ -186,13 +267,16 @@ def _extract_frames(video_path: str | None, clip_id: str, max_frames: int = 10) 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_pattern = str(output_dir / "frame_%03d.jpg")
 
+    duration = _video_duration_seconds(source)
+    fps = 1 if not duration else max_frames / duration
+
     command = [
         "ffmpeg",
         "-y",
         "-i",
         str(source),
         "-vf",
-        f"fps=1,scale=768:-1",
+        f"fps={fps:.4f},scale=768:-1",
         "-frames:v",
         str(max_frames),
         output_pattern,
@@ -330,12 +414,19 @@ def _perception_agent(frame_paths: list[Path], original_call: str) -> dict:
 
 
 def _retrieval_agent(perception: dict) -> str:
+    defender_status = perception.get("defender_status") or {}
+    court_geometry = perception.get("court_geometry") or {}
     prompt = f"""
 Event type: {perception.get("event_type", "unclear")}
 Summary: {perception.get("summary", "")}
 Contact detected: {perception.get("contact_detected", False)}
 Contact location: {perception.get("contact_location", "unclear")}
 Ball state: {perception.get("ball_state", "unclear")}
+Offensive control: {perception.get("offensive_control_status", "unclear")}
+Court zone: {court_geometry.get("key_zone", "backcourt_or_unclear")}
+Restricted area defender: {defender_status.get("inside_restricted_area", "unclear")}
+Legal guarding position: {defender_status.get("legal_guarding_position", "unclear")}
+Defender movement: {defender_status.get("moving_direction", "unclear")}
 
 Write the rulebook search query.
 """.strip()
@@ -363,15 +454,40 @@ def _rule_records() -> list[dict]:
 
 
 def _retrieve_rules(query: str, perception: dict, limit: int = 5) -> list[dict]:
-    haystack = f"{query} {perception.get('event_type', '')} {perception.get('summary', '')}".lower()
+    defender_status = perception.get("defender_status") or {}
+    court_geometry = perception.get("court_geometry") or {}
+    haystack = (
+        f"{query} {perception.get('event_type', '')} {perception.get('summary', '')} "
+        f"{perception.get('offensive_control_status', '')} "
+        f"{court_geometry.get('key_zone', '')} "
+        f"{defender_status.get('primary_or_secondary', '')} "
+        f"{defender_status.get('legal_guarding_position', '')} "
+        f"{defender_status.get('moving_direction', '')}"
+    ).lower()
     scored = []
     for rule in _rule_records():
         rule_text = f"{rule['rule_id']} {rule['section_title']} {rule['text']} {rule['call_type']}".lower()
         score = sum(1 for term in haystack.split() if term in rule_text)
         if rule["rule_id"] == "BLOCK_CHARGE" and any(
-            term in haystack for term in ["charge", "blocking", "guarding", "lateral", "torso"]
+            term in haystack for term in ["charge", "blocking", "guarding", "lateral", "torso", "established"]
         ):
             score += 6
+        if rule["rule_id"] == "RESTRICTED_AREA" and any(
+            term in haystack for term in ["restricted", "secondary", "paint", "lane", "basket"]
+        ):
+            score += 8
+        if rule["rule_id"] == "VERTICALITY" and any(
+            term in haystack for term in ["vertical", "cylinder", "straight", "landing", "forward"]
+        ):
+            score += 7
+        if rule["rule_id"] == "AIRBORNE_SHOOTER" and any(
+            term in haystack for term in ["airborne", "shooter", "upward", "landing", "shooting"]
+        ):
+            score += 7
+        if rule["rule_id"] == "INCIDENTAL_CONTACT" and any(
+            term in haystack for term in ["incidental", "rhythm", "speed", "balance", "quickness", "marginal"]
+        ):
+            score += 7
         if rule["rule_id"] == "SHOOTING_CONTACT" and any(
             term in haystack for term in ["shoot", "shooter", "airborne", "arm", "landing", "verticality"]
         ):
@@ -480,12 +596,14 @@ def _mock_ai_result(
                     "role": "offense",
                     "jersey_color": None,
                     "position_description": "Ball handler near the point of contact",
+                    "court_zone": "paint_lane",
                     "body_state": "Driving through the play",
                 },
                 {
                     "role": "defense",
                     "jersey_color": None,
                     "position_description": "Defender contesting the play",
+                    "court_zone": "paint_lane",
                     "body_state": "Establishing or adjusting guarding position",
                 },
             ],
@@ -493,6 +611,27 @@ def _mock_ai_result(
             "contact_location": "unclear",
             "ball_visible": True,
             "ball_state": "unclear",
+            "offensive_control_status": "unclear",
+            "defender_status": {
+                "primary_or_secondary": "unclear",
+                "legal_guarding_position": "unclear",
+                "feet_set_before_contact": False,
+                "moving_direction": "unclear",
+                "inside_restricted_area": False,
+            },
+            "court_geometry": {
+                "key_zone": "paint_lane",
+                "restricted_area_arc_visible": False,
+                "defender_feet_visible": False,
+                "basket_visible": False,
+            },
+            "frame_observations": [
+                {
+                    "frame_index": 1,
+                    "approx_time_seconds": 4.2,
+                    "observation": "Mock fallback cannot inspect exact court geometry.",
+                }
+            ],
             "moment_of_interest_seconds": 4.2,
             "impact_zone": {
                 "x_percent": 50,
@@ -666,6 +805,7 @@ def _frontend_perception(perception: dict, provider_used: str, retrieval_query: 
                 "role": "unclear",
                 "jersey_color": None,
                 "position_description": "Player positions were not clear enough to label.",
+                "court_zone": "backcourt_or_unclear",
                 "body_state": "Unclear",
             }
         ],
@@ -673,6 +813,23 @@ def _frontend_perception(perception: dict, provider_used: str, retrieval_query: 
         "contact_location": str(perception.get("contact_location") or "unclear"),
         "ball_visible": bool(perception.get("ball_visible", False)),
         "ball_state": str(perception.get("ball_state") or "unclear"),
+        "offensive_control_status": str(perception.get("offensive_control_status") or "unclear"),
+        "defender_status": perception.get("defender_status")
+        or {
+            "primary_or_secondary": "unclear",
+            "legal_guarding_position": "unclear",
+            "feet_set_before_contact": False,
+            "moving_direction": "unclear",
+            "inside_restricted_area": False,
+        },
+        "court_geometry": perception.get("court_geometry")
+        or {
+            "key_zone": "backcourt_or_unclear",
+            "restricted_area_arc_visible": False,
+            "defender_feet_visible": False,
+            "basket_visible": False,
+        },
+        "frame_observations": perception.get("frame_observations") or [],
         "moment_of_interest_seconds": perception.get("moment_of_interest_seconds"),
         "impact_zone": perception.get("impact_zone")
         or {
@@ -688,6 +845,8 @@ def _frontend_perception(perception: dict, provider_used: str, retrieval_query: 
             f"retrieval_query={retrieval_query}; "
             f"contact_location={perception.get('contact_location', 'unclear')}; "
             f"ball_state={perception.get('ball_state', 'unclear')}; "
+            f"court_geometry={perception.get('court_geometry', {})}; "
+            f"defender_status={perception.get('defender_status', {})}; "
             f"notes={perception.get('notes', '')}"
         ),
     }

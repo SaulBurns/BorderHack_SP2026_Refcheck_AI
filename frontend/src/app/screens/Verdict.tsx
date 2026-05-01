@@ -109,6 +109,21 @@ export default function Verdict() {
       detail: v.perception.visual_quality,
     },
     {
+      label: "Court zone known",
+      value: Boolean(
+        v.perception.court_geometry?.key_zone &&
+          v.perception.court_geometry.key_zone !== "backcourt_or_unclear",
+      ),
+      detail: v.perception.court_geometry?.key_zone?.replace(/_/g, " ") || "unclear",
+    },
+    {
+      label: "Defender status",
+      value: v.perception.defender_status?.legal_guarding_position !== "unclear",
+      detail:
+        v.perception.defender_status?.legal_guarding_position?.replace(/_/g, " ") ||
+        "unclear",
+    },
+    {
       label: "Rule cited",
       value: Boolean(v.cited_rule?.rule_id),
       detail: v.cited_rule?.rule_id || "No rule cited",
@@ -326,7 +341,7 @@ export default function Verdict() {
             {reviewChecklist.filter((item) => item.value).length}/{reviewChecklist.length} checks
           </div>
         </div>
-        <div className="grid md:grid-cols-5 gap-3">
+        <div className="grid md:grid-cols-7 gap-3">
           {reviewChecklist.map((item) => (
             <div
               key={item.label}

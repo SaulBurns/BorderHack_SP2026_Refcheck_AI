@@ -8,6 +8,42 @@ BASKETBALL_RULES = {
             "the contact is usually a blocking foul."
         ),
     },
+    "restricted_area": {
+        "call_type": "Restricted Area",
+        "rule_applied": "Secondary defender position inside the restricted area",
+        "summary": (
+            "A secondary defender generally cannot establish legal guarding position "
+            "inside the restricted area against an offensive player who is in control "
+            "of the ball or in the act of shooting. The defender's feet, timing, and "
+            "whether they are primary or secondary are decisive."
+        ),
+    },
+    "verticality": {
+        "call_type": "Verticality",
+        "rule_applied": "Legal vertical contest and cylinder principle",
+        "summary": (
+            "A defender may jump vertically within their own cylinder to contest a shot. "
+            "Illegal contact is more likely when the defender moves forward, sideways, "
+            "or into the shooter's body, arm, or landing space rather than maintaining verticality."
+        ),
+    },
+    "airborne_shooter": {
+        "call_type": "Airborne Shooter",
+        "rule_applied": "Contact with an airborne player before returning to the floor",
+        "summary": (
+            "An airborne shooter is entitled to return safely to the floor. Contact "
+            "that affects the shooter's body, arm, or landing space before they land "
+            "can be a defensive foul unless the defender had already established a legal position."
+        ),
+    },
+    "incidental_contact": {
+        "call_type": "Incidental Contact",
+        "rule_applied": "Contact that does not affect rhythm, speed, balance, or quickness",
+        "summary": (
+            "Not all contact is a foul. Contact may be incidental when it does not "
+            "displace a player or affect rhythm, speed, balance, or quickness."
+        ),
+    },
     "shooting_contact": {
         "call_type": "Shooting Foul",
         "rule_applied": "Illegal contact affecting a try for goal",
