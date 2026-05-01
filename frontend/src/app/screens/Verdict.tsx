@@ -5,12 +5,14 @@ import { useParams, useRouter } from "next/navigation";
 import {
   AlertTriangle,
   BookOpen,
+  Check,
   CircleHelp,
   Share2,
   Star,
   ThumbsDown,
   ThumbsUp,
   Video,
+  X,
 } from "lucide-react";
 import { getCachedVerdict, getCachedLocalVideoUrl, resolveApiUrl } from "../../lib/api";
 import type { AnalyzeResponse, Verdict as VerdictType } from "../../lib/types";
@@ -90,6 +92,36 @@ export default function Verdict() {
   const impactX = clampPercent(impactZone.x_percent, 50);
   const impactY = clampPercent(impactZone.y_percent, 50);
   const impactRadius = Math.max(5, Math.min(24, clampPercent(impactZone.radius_percent, 14)));
+  const reviewChecklist = [
+    {
+      label: "Contact identified",
+      value: v.perception.contact_detected,
+      detail: v.perception.contact_detected ? v.perception.contact_location : "No contact detected",
+    },
+    {
+      label: "Ball visible",
+      value: v.perception.ball_visible,
+      detail: v.perception.ball_state,
+    },
+    {
+      label: "Camera usable",
+      value: !["poor", "obstructed"].includes(v.perception.visual_quality),
+      detail: v.perception.visual_quality,
+    },
+    {
+      label: "Rule cited",
+      value: Boolean(v.cited_rule?.rule_id),
+      detail: v.cited_rule?.rule_id || "No rule cited",
+    },
+    {
+      label: "Agents agree",
+      value: v.adjudicator_a.verdict === v.adjudicator_b.verdict,
+      detail:
+        v.adjudicator_a.verdict === v.adjudicator_b.verdict
+          ? VERDICT_LABEL[v.adjudicator_a.verdict]
+          : "Split decision",
+    },
+  ];
 
   const handleHelpfulVote = (vote: "yes" | "no") => {
     setHelpfulVote(vote);
@@ -284,6 +316,38 @@ export default function Verdict() {
       <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-6 border-2 border-black/5 transform rotate-1">
         <h2 className="font-marker text-3xl mb-4">Why?</h2>
         <p className="leading-relaxed text-gray-700">{v.reasoning}</p>
+      </div>
+
+      {/* Review Checklist */}
+      <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-6 border-2 border-black/5">
+        <div className="flex items-center justify-between gap-4 mb-5">
+          <h2 className="font-marker text-3xl">Ref Review Checklist</h2>
+          <div className="font-mono text-xs rounded bg-black px-3 py-2 text-white">
+            {reviewChecklist.filter((item) => item.value).length}/{reviewChecklist.length} checks
+          </div>
+        </div>
+        <div className="grid md:grid-cols-5 gap-3">
+          {reviewChecklist.map((item) => (
+            <div
+              key={item.label}
+              className={`rounded-lg border-2 p-3 ${
+                item.value
+                  ? "border-[#2DBF4F]/30 bg-[#E5FFE5]"
+                  : "border-[#E63946]/20 bg-[#FFE5E5]"
+              }`}
+            >
+              <div className="mb-2 flex items-center gap-2 font-mono text-[11px]">
+                {item.value ? (
+                  <Check className="h-4 w-4 text-[#2DBF4F]" />
+                ) : (
+                  <X className="h-4 w-4 text-[#E63946]" />
+                )}
+                {item.label}
+              </div>
+              <p className="text-sm text-gray-700">{item.detail}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Rule Cited */}

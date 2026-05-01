@@ -87,6 +87,7 @@ type FeedClip = {
   clipId?: string;
   videoUrl?: string | null;
   isLiveUpload?: boolean;
+  hasCrowdVotes?: boolean;
   game: string;
   league: string;
   quarter: string;
@@ -100,6 +101,11 @@ type FeedClip = {
   aiVsCrowd: string;
   comments: number;
   reasoning?: string | null;
+  summary?: string | null;
+  ruleId?: string | null;
+  visualQuality?: string | null;
+  confidence?: number | null;
+  keyMomentSeconds?: number | null;
 };
 
 const verdictDisplay = {
@@ -110,36 +116,71 @@ const verdictDisplay = {
 
 const refSlug = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
 
+const formatCallType = (value: string | null | undefined) =>
+  (value || "Reviewed play")
+    .replace(/^possible_/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const formatDateTime = (value: string) =>
+  new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+
+const percentagesFromVotes = (fair: number, bad: number, inconclusive: number) => {
+  const total = fair + bad + inconclusive;
+  if (total <= 0) {
+    return { fairPercent: 0, badPercent: 0, inconclusivePercent: 0 };
+  }
+  const fairPercent = Math.round((fair / total) * 100);
+  const badPercent = Math.round((bad / total) * 100);
+  return {
+    fairPercent,
+    badPercent,
+    inconclusivePercent: Math.max(0, 100 - fairPercent - badPercent),
+  };
+};
+
 function realItemToClip(item: FeedItem): FeedClip {
-  const fair = item.votes_fair || 34;
-  const bad = item.votes_bad || 33;
-  const unclear = item.votes_inconclusive || 33;
-  const total = fair + bad + unclear;
+  const fair = item.votes_fair || 0;
+  const bad = item.votes_bad || 0;
+  const unclear = item.votes_inconclusive || 0;
+  const hasCrowdVotes = fair + bad + unclear > 0;
+  const votePercentages = percentagesFromVotes(fair, bad, unclear);
   const display =
     verdictDisplay[item.verdict as keyof typeof verdictDisplay] ||
     verdictDisplay.inconclusive;
+  const storedVerdict = item.verdict_json?.verdict;
+  const perception = storedVerdict?.perception;
+  const rule = storedVerdict?.cited_rule;
+  const displayLeague = item.league || item.level_of_play || "Uploaded Basketball Clip";
+  const displayLevel = item.level_of_play || item.league || "Basketball";
 
   return {
     id: Number.parseInt(item.clip_id.slice(0, 8), 16) || item.clip_id.length,
     clipId: item.clip_id,
     videoUrl: item.video_url,
     isLiveUpload: true,
-    game: item.league || item.level_of_play || "Uploaded Basketball Clip",
-    league: item.level_of_play || item.league || "Basketball",
-    quarter: new Date(item.created_at).toLocaleDateString(),
+    hasCrowdVotes,
+    game: displayLeague,
+    league: displayLevel,
+    quarter: formatDateTime(item.created_at),
     ref: item.referee_name || "Unknown Ref",
-    call: item.original_call || item.call_type || "Reviewed play",
+    call: item.original_call || formatCallType(item.call_type || perception?.event_type),
     aiVerdict: display.label,
     aiColor: display.color,
-    fairPercent: Math.round((fair / total) * 100),
-    badPercent: Math.round((bad / total) * 100),
-    inconclusivePercent: Math.max(
-      1,
-      100 - Math.round((fair / total) * 100) - Math.round((bad / total) * 100),
-    ),
-    aiVsCrowd: "LIVE",
-    comments: 0,
-    reasoning: item.reasoning,
+    ...votePercentages,
+    aiVsCrowd: hasCrowdVotes ? "LIVE" : "AWAITING CROWD",
+    comments: fair + bad + unclear,
+    reasoning: item.reasoning || storedVerdict?.reasoning,
+    summary: perception?.summary || null,
+    ruleId: item.rule_id || rule?.rule_id || null,
+    visualQuality: perception?.visual_quality || null,
+    confidence: item.confidence ?? storedVerdict?.confidence ?? null,
+    keyMomentSeconds: perception?.moment_of_interest_seconds ?? null,
   };
 }
 
@@ -334,28 +375,59 @@ export default function Feed() {
 
                   {/* Crowd Verdict Bar */}
                   <div className="mb-3">
-                    <div className="text-xs font-mono mb-2 opacity-60">CROWD VERDICT</div>
-                    <div className="flex h-8 rounded-lg overflow-hidden border-2 border-black/10">
-                      <div
-                        className="bg-[#2DBF4F] flex items-center justify-center text-white text-xs font-mono"
-                        style={{ width: `${voteTotals.fair}%` }}
-                      >
-                        {voteTotals.fair > 10 && `Fair ${voteTotals.fair}%`}
-                      </div>
-                      <div
-                        className="bg-[#E63946] flex items-center justify-center text-white text-xs font-mono"
-                        style={{ width: `${voteTotals.bad}%` }}
-                      >
-                        {voteTotals.bad > 10 && `Bad ${voteTotals.bad}%`}
-                      </div>
-                      <div
-                        className="bg-[#F6B40F] flex items-center justify-center text-white text-xs font-mono"
-                        style={{ width: `${voteTotals.inconclusive}%` }}
-                      >
-                        {voteTotals.inconclusive > 10 && `? ${voteTotals.inconclusive}%`}
-                      </div>
+                    <div className="flex items-center justify-between text-xs font-mono mb-2 opacity-60">
+                      <span>CROWD VERDICT</span>
+                      {clip.confidence !== null && clip.confidence !== undefined && (
+                        <span>AI CONF. {Math.round(clip.confidence * 100)}%</span>
+                      )}
                     </div>
+                    {clip.hasCrowdVotes || votes[clip.id] ? (
+                      <div className="flex h-8 rounded-lg overflow-hidden border-2 border-black/10">
+                        <div
+                          className="bg-[#2DBF4F] flex items-center justify-center text-white text-xs font-mono"
+                          style={{ width: `${voteTotals.fair}%` }}
+                        >
+                          {voteTotals.fair > 10 && `Fair ${voteTotals.fair}%`}
+                        </div>
+                        <div
+                          className="bg-[#E63946] flex items-center justify-center text-white text-xs font-mono"
+                          style={{ width: `${voteTotals.bad}%` }}
+                        >
+                          {voteTotals.bad > 10 && `Bad ${voteTotals.bad}%`}
+                        </div>
+                        <div
+                          className="bg-[#F6B40F] flex items-center justify-center text-white text-xs font-mono"
+                          style={{ width: `${voteTotals.inconclusive}%` }}
+                        >
+                          {voteTotals.inconclusive > 10 && `? ${voteTotals.inconclusive}%`}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="h-8 rounded-lg border-2 border-dashed border-black/20 bg-gray-50 flex items-center justify-center text-xs font-mono text-gray-500">
+                        No crowd votes yet
+                      </div>
+                    )}
                   </div>
+
+                  {(clip.ruleId || clip.visualQuality || clip.keyMomentSeconds !== null) && (
+                    <div className="mb-4 flex flex-wrap gap-2 text-xs font-mono">
+                      {clip.ruleId && (
+                        <span className="rounded bg-[#FFF9E6] px-2 py-1 text-[#8A5D00]">
+                          Rule {clip.ruleId}
+                        </span>
+                      )}
+                      {clip.visualQuality && (
+                        <span className="rounded bg-gray-100 px-2 py-1 text-gray-600">
+                          View {clip.visualQuality}
+                        </span>
+                      )}
+                      {clip.keyMomentSeconds !== null && clip.keyMomentSeconds !== undefined && (
+                        <span className="rounded bg-gray-100 px-2 py-1 text-gray-600">
+                          Key moment ~{Number(clip.keyMomentSeconds).toFixed(1)}s
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {/* AI vs Crowd Stamp */}
                   <div className="mb-4">
@@ -364,6 +436,8 @@ export default function Feed() {
                         inline-block px-4 py-2 rounded-lg border-3 transform -rotate-2 text-sm font-mono
                         ${clip.aiVsCrowd === 'AGREE'
                           ? 'bg-[#2DBF4F]/20 border-[#2DBF4F] text-[#2DBF4F]'
+                          : clip.aiVsCrowd === 'AWAITING CROWD'
+                          ? 'bg-[#F6B40F]/20 border-[#F6B40F] text-[#8A5D00]'
                           : 'bg-[#E63946]/20 border-[#E63946] text-[#E63946]'
                         }
                       `}
@@ -372,6 +446,8 @@ export default function Feed() {
                       AI vs CROWD: {clip.aiVsCrowd}
                       {clip.aiVsCrowd === 'AGREE' ? (
                         <Check className="ml-2 inline h-4 w-4" />
+                      ) : clip.aiVsCrowd === 'AWAITING CROWD' ? (
+                        <CircleHelp className="ml-2 inline h-4 w-4" />
                       ) : (
                         <X className="ml-2 inline h-4 w-4" />
                       )}
@@ -448,9 +524,26 @@ export default function Feed() {
                     {clip.game}
             </h2>
             <p className="text-sm text-gray-600 mb-4">
-                    {clip.reasoning ||
+                    {clip.summary ||
+                      clip.reasoning ||
                       "Demo feed clips are community examples. Upload your own clip for real AI playback and analysis."}
             </p>
+                  <div className="mb-4 grid grid-cols-2 gap-2 text-xs font-mono">
+                    <div className="rounded bg-gray-50 p-2">
+                      Verdict: {clip.aiVerdict}
+                    </div>
+                    <div className="rounded bg-gray-50 p-2">
+                      {clip.confidence !== null && clip.confidence !== undefined
+                        ? `Confidence: ${Math.round(clip.confidence * 100)}%`
+                        : "Confidence: pending"}
+                    </div>
+                    <div className="rounded bg-gray-50 p-2">
+                      {clip.ruleId ? `Rule: ${clip.ruleId}` : "Rule: not cited"}
+                    </div>
+                    <div className="rounded bg-gray-50 p-2">
+                      {clip.visualQuality ? `View: ${clip.visualQuality}` : "View: unknown"}
+                    </div>
+                  </div>
                 </>
               );
             })()}

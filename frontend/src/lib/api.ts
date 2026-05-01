@@ -60,6 +60,7 @@ export interface FeedItem {
   votes_fair: number;
   votes_bad: number;
   votes_inconclusive: number;
+  verdict_json?: AnalyzeResponse | null;
 }
 
 export async function getFeedItems(): Promise<FeedItem[]> {
