@@ -18,7 +18,9 @@ export interface EventDescription {
   summary: string;
   players_involved: PlayerObservation[];
   contact_detected: boolean;
+  contact_location: string;
   ball_visible: boolean;
+  ball_state: string;
   moment_of_interest_seconds: number | null;
   visual_quality: VisualQuality;
   perception_confidence: number;
@@ -57,6 +59,13 @@ export interface AnalyzeResponse {
   verdict: FinalVerdict;
   clip_id: string;
   clip_url?: string;
+  key_moment?: {
+    frame_url: string;
+    frame_number: number;
+    approximate_seconds: number | null;
+    title: string;
+    explanation: string;
+  };
 }
 
 // Display helpers

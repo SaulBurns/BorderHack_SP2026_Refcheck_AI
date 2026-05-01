@@ -10,7 +10,7 @@ try:
 except ImportError:
     load_dotenv = None
 
-from services.ai_analyzer import analyze_clip
+from services.ai_analyzer import FRAME_DIR, analyze_clip
 from services.supabase_store import list_feed, persist_analysis
 from services.video_processor import UPLOAD_DIR, save_uploaded_clip
 
@@ -86,6 +86,17 @@ def get_uploaded_clip(stored_name: str):
         raise HTTPException(status_code=404, detail="Clip not found")
 
     return FileResponse(clip_path)
+
+@app.get("/api/frames/{clip_id}/{frame_name}")
+def get_analysis_frame(clip_id: str, frame_name: str):
+    safe_clip_id = Path(clip_id).name
+    safe_frame_name = Path(frame_name).name
+    frame_path = FRAME_DIR / safe_clip_id / safe_frame_name
+
+    if not frame_path.exists() or not frame_path.is_file():
+        raise HTTPException(status_code=404, detail="Analysis frame not found")
+
+    return FileResponse(frame_path, media_type="image/jpeg")
 
 @app.get("/api/feed")
 def api_feed(limit: int = 20):

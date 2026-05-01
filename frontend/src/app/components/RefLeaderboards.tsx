@@ -1,22 +1,55 @@
 import Link from "next/link";
+import Image, { type StaticImageData } from "next/image";
+import edMalloyPhoto from "../../images/ed_malloy.jpg";
+import jamesCapersPhoto from "../../images/james_capers.jpg";
+import johnGoblePhoto from "../../images/john_goble.jpg";
+import marcDavisPhoto from "../../images/marc_davis.jpg";
+import scottFosterPhoto from "../../images/scott_foster.jpg";
+import tonyBrothersPhoto from "../../images/Tony-Brothers-scaled.jpg";
+import zachZarbaPhoto from "../../images/zach_zarba.jpg";
 
-const topRefs = [
-  { name: "Zach Zarba", sport: "Basketball", league: "NBA", rating: 4.8, trend: "up" },
-  { name: "Marc Davis", sport: "Basketball", league: "NBA", rating: 4.7, trend: "up" },
-  { name: "John Goble", sport: "Basketball", league: "NBA", rating: 4.6, trend: "neutral" },
-  { name: "Ed Malloy", sport: "Basketball", league: "NBA", rating: 4.5, trend: "up" },
-  { name: "James Capers", sport: "Basketball", league: "NBA", rating: 4.4, trend: "neutral" },
+type RefWithPhoto = {
+  name: string;
+  sport: string;
+  league: string;
+  rating: number;
+  trend?: "up" | "neutral" | "down";
+  disputes?: number;
+  photo: StaticImageData;
+};
+
+const topRefs: RefWithPhoto[] = [
+  { name: "Zach Zarba", sport: "Basketball", league: "NBA", rating: 4.8, trend: "up", photo: zachZarbaPhoto },
+  { name: "Marc Davis", sport: "Basketball", league: "NBA", rating: 4.7, trend: "up", photo: marcDavisPhoto },
+  { name: "John Goble", sport: "Basketball", league: "NBA", rating: 4.6, trend: "neutral", photo: johnGoblePhoto },
+  { name: "Ed Malloy", sport: "Basketball", league: "NBA", rating: 4.5, trend: "up", photo: edMalloyPhoto },
+  { name: "James Capers", sport: "Basketball", league: "NBA", rating: 4.4, trend: "neutral", photo: jamesCapersPhoto },
 ];
 
-const controversialRefs = [
-  { name: "Scott Foster", sport: "Basketball", league: "NBA", rating: 3.1, disputes: 53 },
-  { name: "Tony Brothers", sport: "Basketball", league: "NBA", rating: 3.3, disputes: 49 },
-  { name: "Sean Corbin", sport: "Basketball", league: "NBA", rating: 3.5, disputes: 41 },
-  { name: "Courtney Kirkland", sport: "Basketball", league: "NBA", rating: 3.6, disputes: 38 },
-  { name: "Ben Taylor", sport: "Basketball", league: "NBA", rating: 3.7, disputes: 34 },
+const controversialRefs: RefWithPhoto[] = [
+  { name: "Scott Foster", sport: "Basketball", league: "NBA", rating: 3.1, disputes: 53, photo: scottFosterPhoto },
+  { name: "Tony Brothers", sport: "Basketball", league: "NBA", rating: 3.3, disputes: 49, photo: tonyBrothersPhoto },
+  { name: "James Capers", sport: "Basketball", league: "NBA", rating: 4.4, disputes: 36, photo: jamesCapersPhoto },
+  { name: "Ed Malloy", sport: "Basketball", league: "NBA", rating: 4.5, disputes: 31, photo: edMalloyPhoto },
+  { name: "John Goble", sport: "Basketball", league: "NBA", rating: 4.6, disputes: 27, photo: johnGoblePhoto },
 ];
 
 const refSlug = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
+
+function RefAvatar({ official }: { official: RefWithPhoto }) {
+  return (
+    <div className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-full border-2 border-black/10 bg-gray-100">
+      <Image
+        src={official.photo}
+        alt={`${official.name} profile`}
+        fill
+        sizes="48px"
+        className="object-cover"
+        placeholder="blur"
+      />
+    </div>
+  );
+}
 
 export default function RefLeaderboards() {
   return (
@@ -38,6 +71,7 @@ export default function RefLeaderboards() {
                   <div className="bg-[#2DBF4F] text-white w-10 h-10 rounded-full flex items-center justify-center font-mono">
                     {idx + 1}
                   </div>
+                  <RefAvatar official={ref} />
                   <div>
                     <div>{ref.name}</div>
                     <div className="text-sm text-gray-500">{ref.league}</div>
@@ -73,6 +107,7 @@ export default function RefLeaderboards() {
                   <div className="bg-[#E63946] text-white w-10 h-10 rounded-full flex items-center justify-center font-mono">
                     {idx + 1}
                   </div>
+                  <RefAvatar official={ref} />
                   <div>
                     <div>{ref.name}</div>
                     <div className="text-sm text-gray-500">{ref.league}</div>

@@ -656,7 +656,9 @@ def _frontend_perception(perception: dict, provider_used: str, retrieval_query: 
             }
         ],
         "contact_detected": bool(perception.get("contact_detected", False)),
+        "contact_location": str(perception.get("contact_location") or "unclear"),
         "ball_visible": bool(perception.get("ball_visible", False)),
+        "ball_state": str(perception.get("ball_state") or "unclear"),
         "moment_of_interest_seconds": perception.get("moment_of_interest_seconds"),
         "visual_quality": str(perception.get("visual_quality") or "partial"),
         "perception_confidence": _safe_float(perception.get("perception_confidence"), 0.5),
@@ -687,10 +689,37 @@ def _frontend_adjudicator(adjudicator: dict, fallback_rule: dict) -> dict:
     }
 
 
+def _key_moment_payload(frame_paths: list[Path], perception: dict, clip_id: str, reasoning: str) -> dict | None:
+    if not frame_paths:
+        return None
+
+    moment_seconds = perception.get("moment_of_interest_seconds")
+    try:
+        frame_index = round(float(moment_seconds))
+    except (TypeError, ValueError):
+        frame_index = len(frame_paths) // 2
+
+    frame_index = max(0, min(len(frame_paths) - 1, frame_index))
+    frame_path = frame_paths[frame_index]
+
+    return {
+        "frame_url": f"/api/frames/{clip_id}/{frame_path.name}",
+        "frame_number": frame_index + 1,
+        "approximate_seconds": moment_seconds,
+        "title": "Key Moment Frame",
+        "explanation": (
+            perception.get("summary")
+            or reasoning
+            or "This frame is closest to the moment the AI identified as decisive."
+        ),
+    }
+
+
 def _build_response(
     *,
     agent_result: dict,
     clip_id: str,
+    frame_paths: list[Path],
     video_metadata: dict | None,
     processing_time_seconds: float,
 ) -> dict:
@@ -718,6 +747,8 @@ def _build_response(
     if final_verdict == "inconclusive" and adjudicator_a["verdict"] != adjudicator_b["verdict"]:
         reasoning = reconciliation_note
 
+    key_moment = _key_moment_payload(frame_paths, perception, clip_id, reasoning)
+
     response = {
         "clip_id": clip_id,
         "verdict": {
@@ -738,6 +769,8 @@ def _build_response(
             "processing_time_seconds": round(processing_time_seconds, 1),
         },
     }
+    if key_moment:
+        response["key_moment"] = key_moment
     stored_path = (video_metadata or {}).get("stored_path")
     if stored_path:
         response["clip_url"] = f"/api/clips/{Path(stored_path).name}"
@@ -776,6 +809,7 @@ def analyze_clip(
     return _build_response(
         agent_result=agent_result,
         clip_id=clip_id,
+        frame_paths=frame_paths,
         video_metadata=video_metadata,
         processing_time_seconds=perf_counter() - start,
     )

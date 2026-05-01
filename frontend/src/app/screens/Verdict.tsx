@@ -62,6 +62,9 @@ export default function Verdict() {
   };
   const confidencePct = Math.round(v.confidence * 100);
   const clipSrc = data.clip_url ? resolveApiUrl(data.clip_url) : localVideoUrl;
+  const keyMomentFrameSrc = data.key_moment?.frame_url
+    ? resolveApiUrl(data.key_moment.frame_url)
+    : null;
 
   const handleHelpfulVote = (vote: "yes" | "no") => {
     setHelpfulVote(vote);
@@ -166,6 +169,66 @@ export default function Verdict() {
           </div>
         )}
       </div>
+
+      {/* Key Moment Frame */}
+      {data.key_moment && (
+        <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-6 border-2 border-black/5 transform -rotate-1">
+          <div className="flex flex-col md:flex-row gap-6">
+            <div className="md:w-1/2">
+              <div className="aspect-video rounded-lg overflow-hidden bg-black relative">
+                {keyMomentFrameSrc ? (
+                  <img
+                    src={keyMomentFrameSrc}
+                    alt="Frame closest to the call impact"
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <div className="h-full w-full bg-gray-100 flex items-center justify-center text-gray-500">
+                    Frame unavailable
+                  </div>
+                )}
+                <div
+                  className="absolute left-3 top-3 text-white text-xs font-mono px-2 py-1 rounded"
+                  style={{ backgroundColor: banner.color }}
+                >
+                  FRAME {data.key_moment.frame_number}
+                </div>
+              </div>
+            </div>
+            <div className="md:w-1/2">
+              <div className="font-mono text-xs opacity-60 mb-2">
+                KEY MOMENT
+                {data.key_moment.approximate_seconds !== null &&
+                  ` · ~${Number(data.key_moment.approximate_seconds).toFixed(1)}s`}
+              </div>
+              <h2 className="font-marker text-3xl mb-3">
+                Why this frame matters
+              </h2>
+              <p className="text-gray-700 leading-relaxed mb-4">
+                {data.key_moment.explanation}
+              </p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <div className="font-mono text-[11px] opacity-50 mb-1">CONTACT</div>
+                  <div>{v.perception.contact_detected ? v.perception.contact_location : "none detected"}</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <div className="font-mono text-[11px] opacity-50 mb-1">BALL STATE</div>
+                  <div>{v.perception.ball_state}</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <div className="font-mono text-[11px] opacity-50 mb-1">QUALITY</div>
+                  <div>{v.perception.visual_quality}</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <div className="font-mono text-[11px] opacity-50 mb-1">VISION CONF.</div>
+                  <div>{Math.round(v.perception.perception_confidence * 100)}%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Why? Reasoning */}
       <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-6 border-2 border-black/5 transform rotate-1">

@@ -1,8 +1,30 @@
 "use client";
 
+import Image, { type StaticImageData } from "next/image";
 import { useState } from "react";
+import edMalloyPhoto from "../../images/ed_malloy.jpg";
+import jamesCapersPhoto from "../../images/james_capers.jpg";
+import johnGoblePhoto from "../../images/john_goble.jpg";
+import marcDavisPhoto from "../../images/marc_davis.jpg";
+import scottFosterPhoto from "../../images/scott_foster.jpg";
+import tonyBrothersPhoto from "../../images/Tony-Brothers-scaled.jpg";
+import zachZarbaPhoto from "../../images/zach_zarba.jpg";
 
-const refs = [
+type Referee = {
+  rank: number;
+  name: string;
+  league: string;
+  sport: string;
+  years: number;
+  rating: number;
+  totalRatings: number;
+  aiCallsAnalyzed: number;
+  aiAgreement: number;
+  trend: "up" | "neutral" | "down";
+  photo: StaticImageData;
+};
+
+const refs: Referee[] = [
   {
     rank: 1,
     name: "Zach Zarba",
@@ -14,7 +36,7 @@ const refs = [
     aiCallsAnalyzed: 173,
     aiAgreement: 86,
     trend: "up",
-    photo: "👨‍⚖️"
+    photo: zachZarbaPhoto,
   },
   {
     rank: 2,
@@ -27,7 +49,7 @@ const refs = [
     aiCallsAnalyzed: 218,
     aiAgreement: 84,
     trend: "up",
-    photo: "👨‍⚖️"
+    photo: marcDavisPhoto,
   },
   {
     rank: 3,
@@ -40,7 +62,7 @@ const refs = [
     aiCallsAnalyzed: 151,
     aiAgreement: 82,
     trend: "neutral",
-    photo: "👨‍⚖️"
+    photo: johnGoblePhoto,
   },
   {
     rank: 4,
@@ -53,7 +75,7 @@ const refs = [
     aiCallsAnalyzed: 150,
     aiAgreement: 80,
     trend: "up",
-    photo: "👨‍⚖️"
+    photo: edMalloyPhoto,
   },
   {
     rank: 5,
@@ -66,7 +88,7 @@ const refs = [
     aiCallsAnalyzed: 204,
     aiAgreement: 79,
     trend: "neutral",
-    photo: "👨‍⚖️"
+    photo: jamesCapersPhoto,
   },
   {
     rank: 6,
@@ -79,7 +101,7 @@ const refs = [
     aiCallsAnalyzed: 216,
     aiAgreement: 64,
     trend: "down",
-    photo: "👨‍⚖️"
+    photo: tonyBrothersPhoto,
   },
   {
     rank: 7,
@@ -92,7 +114,7 @@ const refs = [
     aiCallsAnalyzed: 262,
     aiAgreement: 61,
     trend: "down",
-    photo: "👨‍⚖️"
+    photo: scottFosterPhoto,
   },
 ];
 
@@ -206,7 +228,16 @@ export default function Leaderboard() {
               </div>
 
               {/* Photo */}
-              <div className="text-5xl">{ref.photo}</div>
+              <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-full border-2 border-black/10 bg-gray-100 shadow-[3px_3px_0_0_rgba(0,0,0,0.1)]">
+                <Image
+                  src={ref.photo}
+                  alt={`${ref.name} profile`}
+                  fill
+                  sizes="80px"
+                  className="object-cover"
+                  placeholder="blur"
+                />
+              </div>
 
               {/* Info */}
               <div className="flex-1">
