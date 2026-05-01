@@ -6,7 +6,21 @@ Current stack:
 
 - Frontend: Next.js
 - Backend: FastAPI
-- Analysis: mocked multimodal/rule comparison pipeline for demo stability
+- Analysis: ffmpeg frame extraction + four-agent Claude pipeline with mock fallback
+
+Supported modes:
+
+- `AI_PROVIDER=mock` for local demos without paid keys
+- `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` for the real four-agent pipeline
+
+The four agents are:
+
+1. Perception Agent: watches extracted frames and produces structured observation JSON.
+2. Retrieval Agent: converts the observation into a precise rulebook query.
+3. Adjudicator A: conservative reviewer that gives the original call benefit of the doubt.
+4. Adjudicator B: skeptical reviewer that independently challenges the original call.
+
+The backend reconciles both adjudicators into the final verdict.
 
 ## First-Time Setup
 
@@ -21,11 +35,32 @@ source venv/bin/activate
 python3 -m pip install -r requirements.txt
 ```
 
+For real video analysis, install `ffmpeg` locally:
+
+```bash
+brew install ffmpeg
+```
+
+Then copy the backend env example:
+
+```bash
+cp .env.example .env
+```
+
+Keep `AI_PROVIDER=mock` for free local testing. To use the real four-agent pipeline, set:
+
+```bash
+AI_PROVIDER=anthropic
+AI_MODEL=claude-sonnet-4-5
+ANTHROPIC_API_KEY=your_key
+```
+
 ### Frontend
 
 ```bash
 cd frontend
 npm install
+cp .env.example .env.local
 ```
 
 ## Run Locally
@@ -129,6 +164,43 @@ source venv/bin/activate
 python3 -m compileall main.py rules services
 ```
 
+## Deployment
+
+Recommended hackathon deployment:
+
+- Frontend: Vercel
+- Backend: Render
+- Backend runtime: Docker, so `ffmpeg` is available for frame extraction
+
+### Render Backend
+
+This repo includes `render.yaml` and `backend/Dockerfile`.
+
+On Render:
+
+1. Create a new Blueprint or Web Service from the GitHub repo.
+2. Use the backend service from `render.yaml`.
+3. Set `FRONTEND_ORIGIN` to your Vercel URL, for example `https://refcheck-ai.vercel.app`.
+4. Set `AI_PROVIDER` to `anthropic` or `mock`.
+5. Add `ANTHROPIC_API_KEY` when using `anthropic`.
+
+Use `mock` until the backend deploy is healthy, then switch to a paid provider.
+
+### Vercel Frontend
+
+On Vercel:
+
+1. Set the project root to `frontend`.
+2. Add this environment variable:
+
+```bash
+NEXT_PUBLIC_API_BASE=https://your-render-backend.onrender.com
+```
+
+3. Deploy.
+
+After Vercel deploys, copy the Vercel URL back into Render as `FRONTEND_ORIGIN`.
+
 ## Common Issues
 
 ### Backend port already in use
@@ -171,12 +243,18 @@ http://localhost:8000/api/analyze
 2. User uploads a basketball clip.
 3. Frontend sends multipart form data to FastAPI.
 4. Backend saves the uploaded clip temporarily.
-5. Mock analyzer selects a basketball rule.
-6. Backend returns a verdict:
+5. Backend extracts representative frames with `ffmpeg`.
+6. Perception Agent describes what happened without making a ruling.
+7. Retrieval Agent writes a rulebook-style query.
+8. Backend retrieves the most relevant basketball rule snippets.
+9. Conservative and Skeptical Adjudicator Agents independently rule on the play.
+10. Backend reconciles the two adjudicators into one final verdict.
+11. If AI is unavailable, the mock analyzer returns a demo-safe verdict.
+12. Backend returns a verdict:
    - Fair Call
    - Bad Call
    - Inconclusive
-7. Frontend displays confidence, cited rule, reasoning, perception details, and mock adjudicator results.
+13. Frontend displays confidence, cited rule, reasoning, perception details, and adjudicator results.
 
 ## Generated Files
 

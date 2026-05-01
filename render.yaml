@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: refcheck-ai-backend
+    runtime: docker
+    rootDir: backend
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: AI_PROVIDER
+        value: mock
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: AI_MODEL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
