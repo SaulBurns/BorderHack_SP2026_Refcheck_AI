@@ -30,6 +30,9 @@ def test_normalize_sport_unknown_falls_back_to_basketball():
 def test_normalize_sport_empty_string_falls_back():
     assert normalize_sport("") == "basketball"
 
+def test_normalize_sport_none_falls_back():
+    assert normalize_sport(None) == "basketball"
+
 
 # ---------------------------------------------------------------------------
 # get_rules_for_sport
