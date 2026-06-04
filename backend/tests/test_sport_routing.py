@@ -73,3 +73,66 @@ def test_sports_entries_have_display_name():
 def test_sports_entries_have_rules_key():
     for key, config in SPORTS.items():
         assert "rules" in config, f"{key} missing rules key"
+
+
+# ---------------------------------------------------------------------------
+# Prompt selectors
+# ---------------------------------------------------------------------------
+
+from services.ai_analyzer import (
+    _get_perception_prompt,
+    _get_retrieval_prompt,
+    _get_adjudicator_prompt,
+)
+
+
+# --- _get_perception_prompt ---
+
+def test_perception_prompt_basketball_contains_basketball_terms():
+    prompt = _get_perception_prompt("basketball")
+    assert "basketball" in prompt.lower()
+    assert "restricted area" in prompt.lower()
+
+def test_perception_prompt_hockey_does_not_mention_restricted_area():
+    prompt = _get_perception_prompt("hockey")
+    assert "restricted area" not in prompt.lower()
+
+def test_perception_prompt_returns_nonempty_string_for_all_sports():
+    for sport in ("basketball", "hockey", "soccer", "lacrosse"):
+        result = _get_perception_prompt(sport)
+        assert isinstance(result, str) and len(result) > 100, f"empty prompt for {sport}"
+
+
+# --- _get_retrieval_prompt ---
+
+def test_retrieval_prompt_basketball_mentions_basketball_specific_terms():
+    prompt = _get_retrieval_prompt("basketball")
+    assert any(
+        term in prompt.lower()
+        for term in ("pivot foot", "restricted area", "airborne shooter")
+    )
+
+def test_retrieval_prompt_hockey_does_not_mention_pivot_foot():
+    prompt = _get_retrieval_prompt("hockey")
+    assert "pivot foot" not in prompt.lower()
+
+def test_retrieval_prompt_returns_nonempty_string_for_all_sports():
+    for sport in ("basketball", "hockey", "soccer", "lacrosse"):
+        result = _get_retrieval_prompt(sport)
+        assert isinstance(result, str) and len(result) > 50, f"empty prompt for {sport}"
+
+
+# --- _get_adjudicator_prompt ---
+
+def test_adjudicator_prompt_basketball_mentions_nba():
+    prompt = _get_adjudicator_prompt("basketball")
+    assert "nba" in prompt.lower()
+
+def test_adjudicator_prompt_hockey_does_not_mention_nba():
+    prompt = _get_adjudicator_prompt("hockey")
+    assert "nba" not in prompt.lower()
+
+def test_adjudicator_prompt_returns_nonempty_string_for_all_sports():
+    for sport in ("basketball", "hockey", "soccer", "lacrosse"):
+        result = _get_adjudicator_prompt(sport)
+        assert isinstance(result, str) and len(result) > 100, f"empty prompt for {sport}"
