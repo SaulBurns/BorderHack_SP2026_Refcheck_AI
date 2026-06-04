@@ -5,7 +5,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
 export interface AnalyzeParams {
   file: File;
-  sport: "basketball";
+  sport: string;
   originalCall?: string;
   refName?: string;
   league?: string;

@@ -1,7 +1,10 @@
+import logging
 import os
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -140,6 +143,7 @@ async def analyze_video_for_frontend(
     original_call: str | None = Form(None),
     ref_name: str | None = Form(None),
 ):
+    logger.info("[RefCheck] /api/analyze received sport=%r file=%r", sport, file.filename)
     video_metadata = await save_uploaded_clip(file)
     result = analyze_clip(
         file=file,

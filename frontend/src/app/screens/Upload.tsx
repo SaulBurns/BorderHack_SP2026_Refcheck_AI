@@ -77,9 +77,10 @@ export default function Upload() {
     setCurrentStep(0);
 
     try {
+      console.log("[RefCheck] Submitting clip with sport:", selectedSport);
       const response = await analyzeClip({
         file,
-        sport: "basketball",
+        sport: selectedSport,
         originalCall: originalCall || undefined,
         refName: refName || undefined,
         league: league || undefined,

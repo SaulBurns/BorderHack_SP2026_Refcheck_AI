@@ -14,7 +14,7 @@ export interface PlayerObservation {
 }
 
 export interface EventDescription {
-  sport: "basketball";
+  sport: string;
   event_type: string;
   summary: string;
   players_involved: PlayerObservation[];
