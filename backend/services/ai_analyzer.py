@@ -537,7 +537,7 @@ def _call_anthropic_messages(
     return _anthropic_text_from_response(response)
 
 
-def _perception_agent(frame_paths: list[Path], original_call: str) -> dict:
+def _perception_agent(frame_paths: list[Path], original_call: str, sport: str) -> dict:
     context = (
         f"The on-court referee called: '{original_call}'. Use this only as context "
         "for what to focus on. Do not let it bias your perception of what happened."
@@ -549,14 +549,14 @@ def _perception_agent(frame_paths: list[Path], original_call: str) -> dict:
         {
             "type": "text",
             "text": (
-                f"Analyze these {len(frame_paths)} frames from a basketball clip.\n\n"
+                f"Analyze these {len(frame_paths)} frames from a {sport} clip.\n\n"
                 f"{context}\n\nReturn your structured observation as JSON."
             ),
         }
     )
     return _extract_json(
         _call_anthropic_messages(
-            system_prompt=_BASKETBALL_PERCEPTION_PROMPT,
+            system_prompt=_get_perception_prompt(sport),
             user_content=user_blocks,
             temperature=0,
             max_tokens=1600,
@@ -564,7 +564,7 @@ def _perception_agent(frame_paths: list[Path], original_call: str) -> dict:
     )
 
 
-def _retrieval_agent(perception: dict) -> str:
+def _retrieval_agent(perception: dict, sport: str) -> str:
     defender_status = perception.get("defender_status") or {}
     court_geometry = perception.get("court_geometry") or {}
     prompt = f"""
@@ -582,29 +582,28 @@ Defender movement: {defender_status.get("moving_direction", "unclear")}
 Write the rulebook search query.
 """.strip()
     return _call_anthropic_messages(
-        system_prompt=_BASKETBALL_RETRIEVAL_PROMPT,
+        system_prompt=_get_retrieval_prompt(sport),
         user_content=prompt,
         temperature=0,
         max_tokens=80,
     ).strip().strip('"')
 
 
-def _rule_records() -> list[dict]:
-    records = []
-    for key, rule in BASKETBALL_RULES.items():
-        records.append(
-            {
-                "rule_id": key.upper(),
-                "section_title": rule["rule_applied"],
-                "text": rule["summary"],
-                "page_number": rule.get("page_number", 1),
-                "call_type": rule["call_type"],
-            }
-        )
-    return records
+def _rule_records(sport: str) -> list[dict]:
+    from rules.sport_config import get_rules_for_sport
+    return [
+        {
+            "rule_id": key.upper(),
+            "section_title": rule["rule_applied"],
+            "text": rule["summary"],
+            "page_number": rule.get("page_number", 1),
+            "call_type": rule["call_type"],
+        }
+        for key, rule in get_rules_for_sport(sport).items()
+    ]
 
 
-def _retrieve_rules(query: str, perception: dict, limit: int = 5) -> list[dict]:
+def _retrieve_rules(query: str, perception: dict, sport: str, limit: int = 5) -> list[dict]:
     defender_status = perception.get("defender_status") or {}
     court_geometry = perception.get("court_geometry") or {}
     haystack = (
@@ -615,50 +614,57 @@ def _retrieve_rules(query: str, perception: dict, limit: int = 5) -> list[dict]:
         f"{defender_status.get('legal_guarding_position', '')} "
         f"{defender_status.get('moving_direction', '')}"
     ).lower()
-    scored = []
-    for rule in _rule_records():
-        rule_text = f"{rule['rule_id']} {rule['section_title']} {rule['text']} {rule['call_type']}".lower()
+
+    scored: list[tuple[int, dict]] = []
+    for rule in _rule_records(sport):
+        rule_text = (
+            f"{rule['rule_id']} {rule['section_title']} {rule['text']} {rule['call_type']}"
+        ).lower()
         score = sum(1 for term in haystack.split() if term in rule_text)
-        if rule["rule_id"] == "BLOCK_CHARGE" and any(
-            term in haystack for term in ["charge", "blocking", "guarding", "lateral", "torso", "established"]
-        ):
-            score += 6
-        if rule["rule_id"] == "RESTRICTED_AREA" and any(
-            term in haystack for term in ["restricted", "secondary", "paint", "lane", "basket"]
-        ):
-            score += 8
-        if rule["rule_id"] == "VERTICALITY" and any(
-            term in haystack for term in ["vertical", "cylinder", "straight", "landing", "forward"]
-        ):
-            score += 7
-        if rule["rule_id"] == "AIRBORNE_SHOOTER" and any(
-            term in haystack for term in ["airborne", "shooter", "upward", "landing", "shooting"]
-        ):
-            score += 7
-        if rule["rule_id"] == "INCIDENTAL_CONTACT" and any(
-            term in haystack for term in ["incidental", "rhythm", "speed", "balance", "quickness", "marginal"]
-        ):
-            score += 7
-        if rule["rule_id"] == "SHOOTING_CONTACT" and any(
-            term in haystack for term in ["shoot", "shooter", "airborne", "arm", "landing", "verticality"]
-        ):
-            score += 6
-        if rule["rule_id"] == "TRAVEL" and any(
-            term in haystack for term in ["travel", "pivot", "gather", "steps", "dribble"]
-        ):
-            score += 6
-        if rule["rule_id"] == "OUT_OF_BOUNDS" and any(
-            term in haystack for term in ["out", "boundary", "sideline", "baseline", "last"]
-        ):
-            score += 6
-        if rule["rule_id"] == "GOALTENDING" and any(
-            term in haystack for term in ["goaltend", "downward", "cylinder", "rim", "interference"]
-        ):
-            score += 6
+
+        if sport == "basketball":
+            if rule["rule_id"] == "BLOCK_CHARGE" and any(
+                t in haystack for t in ["charge", "blocking", "guarding", "lateral", "torso", "established"]
+            ):
+                score += 6
+            if rule["rule_id"] == "RESTRICTED_AREA" and any(
+                t in haystack for t in ["restricted", "secondary", "paint", "lane", "basket"]
+            ):
+                score += 8
+            if rule["rule_id"] == "VERTICALITY" and any(
+                t in haystack for t in ["vertical", "cylinder", "straight", "landing", "forward"]
+            ):
+                score += 7
+            if rule["rule_id"] == "AIRBORNE_SHOOTER" and any(
+                t in haystack for t in ["airborne", "shooter", "upward", "landing", "shooting"]
+            ):
+                score += 7
+            if rule["rule_id"] == "INCIDENTAL_CONTACT" and any(
+                t in haystack for t in ["incidental", "rhythm", "speed", "balance", "quickness", "marginal"]
+            ):
+                score += 7
+            if rule["rule_id"] == "SHOOTING_CONTACT" and any(
+                t in haystack for t in ["shoot", "shooter", "airborne", "arm", "landing", "verticality"]
+            ):
+                score += 6
+            if rule["rule_id"] == "TRAVEL" and any(
+                t in haystack for t in ["travel", "pivot", "gather", "steps", "dribble"]
+            ):
+                score += 6
+            if rule["rule_id"] == "OUT_OF_BOUNDS" and any(
+                t in haystack for t in ["out", "boundary", "sideline", "baseline", "last"]
+            ):
+                score += 6
+            if rule["rule_id"] == "GOALTENDING" and any(
+                t in haystack for t in ["goaltend", "downward", "cylinder", "rim", "interference"]
+            ):
+                score += 6
+
         scored.append((score, rule))
 
-    ranked = [rule for _, rule in sorted(scored, key=lambda item: item[0], reverse=True)]
-    return ranked[:limit] or [_rule_records()[0]]
+    return [
+        rule for _, rule in sorted(scored, key=lambda item: item[0], reverse=True)
+    ][:limit]
 
 
 def _rules_text(rules: list[dict]) -> str:
@@ -677,6 +683,7 @@ def _adjudicator_agent(
     original_call: str,
     framing: str,
     temperature: float,
+    sport: str,
 ) -> dict:
     original_call_line = (
         f"'{original_call}'"
@@ -696,7 +703,7 @@ Issue your verdict as JSON.
 """.strip()
     return _extract_json(
         _call_anthropic_messages(
-            system_prompt=f"{_BASKETBALL_ADJUDICATOR_PROMPT}\n\n{framing}",
+            system_prompt=f"{_get_adjudicator_prompt(sport)}\n\n{framing}",
             user_content=prompt,
             temperature=temperature,
             max_tokens=1200,
@@ -863,15 +870,16 @@ def _run_four_agent_pipeline(
         )
 
     try:
-        perception = _perception_agent(frame_paths, original_call)
-        retrieval_query = _retrieval_agent(perception)
-        retrieved_rules = _retrieve_rules(retrieval_query, perception)
+        perception = _perception_agent(frame_paths, original_call, sport)
+        retrieval_query = _retrieval_agent(perception, sport)
+        retrieved_rules = _retrieve_rules(retrieval_query, perception, sport)
         adjudicator_a = _adjudicator_agent(
             perception=perception,
             rules=retrieved_rules,
             original_call=original_call,
             framing=CONSERVATIVE_FRAMING,
             temperature=0.2,
+            sport=sport,
         )
         adjudicator_b = _adjudicator_agent(
             perception=perception,
@@ -879,6 +887,7 @@ def _run_four_agent_pipeline(
             original_call=original_call,
             framing=SKEPTICAL_FRAMING,
             temperature=0.7,
+            sport=sport,
         )
         return {
             "provider_used": "anthropic_four_agent",

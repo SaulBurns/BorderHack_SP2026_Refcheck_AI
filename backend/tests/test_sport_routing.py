@@ -136,3 +136,68 @@ def test_adjudicator_prompt_returns_nonempty_string_for_all_sports():
     for sport in ("basketball", "hockey", "soccer", "lacrosse"):
         result = _get_adjudicator_prompt(sport)
         assert isinstance(result, str) and len(result) > 100, f"empty prompt for {sport}"
+
+
+# ---------------------------------------------------------------------------
+# Rule routing
+# ---------------------------------------------------------------------------
+
+from services.ai_analyzer import _rule_records, _retrieve_rules
+
+_MINIMAL_PERCEPTION: dict = {
+    "event_type": "unclear",
+    "summary": "a play",
+    "offensive_control_status": "unclear",
+    "defender_status": {},
+    "court_geometry": {},
+}
+
+
+def test_rule_records_basketball_returns_nine_rules():
+    assert len(_rule_records("basketball")) == 9
+
+def test_rule_records_basketball_has_block_charge():
+    ids = [r["rule_id"] for r in _rule_records("basketball")]
+    assert "BLOCK_CHARGE" in ids
+
+def test_rule_records_hockey_returns_empty_list():
+    assert _rule_records("hockey") == []
+
+def test_rule_records_soccer_returns_empty_list():
+    assert _rule_records("soccer") == []
+
+def test_rule_records_lacrosse_returns_empty_list():
+    assert _rule_records("lacrosse") == []
+
+
+def test_retrieve_rules_basketball_returns_block_charge_first_for_blocking_query():
+    perception = {
+        **_MINIMAL_PERCEPTION,
+        "event_type": "possible_blocking_foul",
+        "summary": "defender slides into path of ball handler",
+        "defender_status": {
+            "primary_or_secondary": "primary",
+            "legal_guarding_position": "not_established",
+            "moving_direction": "lateral",
+            "inside_restricted_area": False,
+        },
+        "court_geometry": {"key_zone": "paint_lane"},
+    }
+    rules = _retrieve_rules("blocking foul legal guarding position established", perception, "basketball")
+    assert 1 <= len(rules) <= 5
+    assert rules[0]["rule_id"] == "BLOCK_CHARGE"
+
+def test_retrieve_rules_hockey_returns_empty_list():
+    rules = _retrieve_rules("hockey slashing high stick", _MINIMAL_PERCEPTION, "hockey")
+    assert rules == []
+
+def test_retrieve_rules_basketball_preserves_existing_behavior():
+    perception = {
+        **_MINIMAL_PERCEPTION,
+        "event_type": "possible_blocking_foul",
+        "defender_status": {"moving_direction": "lateral", "inside_restricted_area": False},
+        "court_geometry": {"key_zone": "restricted_area"},
+    }
+    rules = _retrieve_rules("blocking charge restricted area secondary defender", perception, "basketball")
+    assert len(rules) > 0
+    assert rules[0]["rule_id"] in ("BLOCK_CHARGE", "RESTRICTED_AREA")
