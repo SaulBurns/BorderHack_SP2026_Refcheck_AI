@@ -201,3 +201,53 @@ def test_retrieve_rules_basketball_preserves_existing_behavior():
     rules = _retrieve_rules("blocking charge restricted area secondary defender", perception, "basketball")
     assert len(rules) > 0
     assert rules[0]["rule_id"] in ("BLOCK_CHARGE", "RESTRICTED_AREA")
+
+
+# ---------------------------------------------------------------------------
+# Output sport field correctness
+# ---------------------------------------------------------------------------
+
+from unittest.mock import MagicMock
+from services.ai_analyzer import _mock_ai_result, _frontend_perception, _rule_by_id
+
+
+def test_mock_ai_result_sport_field_matches_hockey():
+    mock_file = MagicMock()
+    result = _mock_ai_result(mock_file, "hockey", "", "", "", "", None, "test fallback")
+    assert result["perception"]["sport"] == "hockey"
+
+def test_mock_ai_result_sport_field_matches_basketball():
+    mock_file = MagicMock()
+    result = _mock_ai_result(mock_file, "basketball", "", "", "", "", None, "test fallback")
+    assert result["perception"]["sport"] == "basketball"
+
+def test_mock_ai_result_sport_field_matches_soccer():
+    mock_file = MagicMock()
+    result = _mock_ai_result(mock_file, "soccer", "", "", "", "", None, "test fallback")
+    assert result["perception"]["sport"] == "soccer"
+
+
+def test_frontend_perception_sport_field_hockey():
+    result = _frontend_perception({"event_type": "unclear", "summary": "test"}, "mock", "", "hockey")
+    assert result["sport"] == "hockey"
+
+def test_frontend_perception_sport_field_basketball():
+    result = _frontend_perception({"event_type": "unclear", "summary": "test"}, "mock", "", "basketball")
+    assert result["sport"] == "basketball"
+
+
+def test_rule_by_id_with_empty_rules_returns_no_rule_placeholder():
+    result = _rule_by_id(None, [])
+    assert result["rule_id"] == "NO_RULE"
+
+def test_rule_by_id_finds_exact_match():
+    rules = [
+        {"rule_id": "BLOCK_CHARGE", "section_title": "test", "text": "test", "page_number": 1, "call_type": "Block"},
+    ]
+    assert _rule_by_id("BLOCK_CHARGE", rules)["rule_id"] == "BLOCK_CHARGE"
+
+def test_rule_by_id_returns_first_rule_when_id_not_found():
+    rules = [
+        {"rule_id": "BLOCK_CHARGE", "section_title": "test", "text": "test", "page_number": 1, "call_type": "Block"},
+    ]
+    assert _rule_by_id("NONEXISTENT", rules)["rule_id"] == "BLOCK_CHARGE"

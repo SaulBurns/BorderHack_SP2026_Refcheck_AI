@@ -12,7 +12,6 @@ from typing import Any
 
 from fastapi import UploadFile
 
-from rules.basketball_rules import BASKETBALL_RULES, DEFAULT_BASKETBALL_RULE
 from services.mock_analyzer import analyze_clip as mock_analyze_clip
 
 try:
@@ -746,7 +745,7 @@ def _mock_ai_result(
             }
         ],
         "perception": {
-            "sport": "basketball",
+            "sport": sport,
             "event_type": result["call_type"],
             "summary": result["evidence"][2],
             "players_involved": [
@@ -917,11 +916,12 @@ def _rule_by_id(rule_id: str | None, rules: list[dict]) -> dict:
             if rule["rule_id"].upper() == normalized:
                 return rule
     return rules[0] if rules else {
-        "rule_id": "BLOCK_CHARGE",
-        "section_title": DEFAULT_BASKETBALL_RULE["rule_applied"],
-        "text": DEFAULT_BASKETBALL_RULE["summary"],
-        "page_number": 1,
-        "call_type": DEFAULT_BASKETBALL_RULE["call_type"],
+        "rule_id": "NO_RULE",
+        "section_title": "No applicable rule found",
+        "text": "No specific rules were retrieved for this play.",
+        "page_number": 0,
+        "call_type": "Unknown",
+        "similarity_score": 0.0,
     }
 
 
@@ -954,9 +954,9 @@ def _reconcile(adjudicator_a: dict, adjudicator_b: dict, perception: dict) -> tu
     )
 
 
-def _frontend_perception(perception: dict, provider_used: str, retrieval_query: str) -> dict:
+def _frontend_perception(perception: dict, provider_used: str, retrieval_query: str, sport: str) -> dict:
     return {
-        "sport": "basketball",
+        "sport": sport,
         "event_type": str(perception.get("event_type") or "unclear"),
         "summary": str(perception.get("summary") or "The perception agent reviewed the submitted basketball play."),
         "players_involved": perception.get("players_involved")
@@ -1062,6 +1062,7 @@ def _build_response(
     frame_paths: list[Path],
     video_metadata: dict | None,
     processing_time_seconds: float,
+    sport: str,
 ) -> dict:
     perception = agent_result["perception"]
     retrieved_rules = agent_result["retrieved_rules"]
@@ -1102,7 +1103,7 @@ def _build_response(
                 "page_number": primary_rule.get("page_number", 1),
                 "similarity_score": 0.86,
             },
-            "perception": _frontend_perception(perception, provider_used, retrieval_query),
+            "perception": _frontend_perception(perception, provider_used, retrieval_query, sport),
             "adjudicator_a": adjudicator_a,
             "adjudicator_b": adjudicator_b,
             "reconciliation_note": reconciliation_note,
@@ -1126,8 +1127,10 @@ def analyze_clip(
     referee_name: str | None = None,
     video_metadata: dict | None = None,
 ) -> dict:
+    from rules.sport_config import normalize_sport
+
     start = perf_counter()
-    normalized_sport = _clean(sport, "basketball")
+    normalized_sport = normalize_sport(sport)
     normalized_level = _clean(level_of_play)
     normalized_league = _clean(league)
     normalized_original_call = _clean(original_call)
@@ -1152,4 +1155,5 @@ def analyze_clip(
         frame_paths=frame_paths,
         video_metadata=video_metadata,
         processing_time_seconds=perf_counter() - start,
+        sport=normalized_sport,
     )
