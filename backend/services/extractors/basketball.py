@@ -1,21 +1,19 @@
-"""Basketball sport detail extractor (Phase 6).
+"""Basketball sport detail extractor (Phase 6-8).
 
-When `RawDetections` are available it derives what it responsibly can from raw
-boxes (currently `offensive_control_status` from ball-vs-player proximity) and
-leaves geometry/defender judgements to the perception payload — deriving those
-requires court keypoints, which is future work.
+Derives BasketballDetails from a detector's RawDetections, falling back to the
+perception payload for any field that cannot be determined from detections.
 
-When detections are unavailable it reproduces exactly the `BasketballDetails`
-that `_frontend_perception` builds today, preserving existing behavior.
+Phase 8 adds vision-derived enrichment (ball possession transitions, primary
+defender identification, movement direction) via `basketball_vision`. Every
+derived field is applied only when available, so the no-detections path and the
+insufficient-detection path reproduce existing behavior exactly.
 """
 
 from __future__ import annotations
 
-from services.detectors.detection_models import BoundingBox, FrameDetections, RawDetections
+from services.detectors.detection_models import RawDetections
+from services.extractors.basketball_vision import analyze_basketball
 from services.perception_schema import BasketballDetails, CourtGeometry, DefenderStatus
-
-_BALL_LABELS = {"sports ball", "basketball", "ball"}
-_PERSON_LABELS = {"person", "player"}
 
 # Defaults mirror _frontend_perception's legacy fallbacks (kept in sync via the
 # backward-compat parity test in tests/test_extractors.py).
@@ -34,23 +32,6 @@ _COURT_DEFAULTS = {
 }
 
 
-def _center_inside(inner: BoundingBox, outer: BoundingBox) -> bool:
-    return (
-        (outer.x - outer.width / 2) <= inner.x <= (outer.x + outer.width / 2)
-        and (outer.y - outer.height / 2) <= inner.y <= (outer.y + outer.height / 2)
-    )
-
-
-def _frame_has_ball(frame: FrameDetections) -> bool:
-    return any(obj.label.lower() in _BALL_LABELS for obj in frame.objects)
-
-
-def _frame_ball_controlled(frame: FrameDetections) -> bool:
-    persons = [o.bbox for o in frame.objects if o.label.lower() in _PERSON_LABELS]
-    balls = [o.bbox for o in frame.objects if o.label.lower() in _BALL_LABELS]
-    return any(_center_inside(ball, person) for ball in balls for person in persons)
-
-
 class BasketballDetailExtractor:
     """Derives BasketballDetails from detections, falling back to perception."""
 
@@ -58,10 +39,24 @@ class BasketballDetailExtractor:
 
     def extract(self, detections: RawDetections | None, perception: dict) -> BasketballDetails:
         base = self._from_perception(perception)
-        derived = self._offensive_control_from_detections(detections)
-        if derived is not None:
-            base = base.model_copy(update={"offensive_control_status": derived})
-        return base
+        if detections is None:
+            return base
+
+        features = analyze_basketball(detections)
+
+        updates: dict = {}
+        if features.offensive_control_status is not None:
+            updates["offensive_control_status"] = features.offensive_control_status
+
+        defender_updates: dict = {}
+        if features.primary_or_secondary is not None:
+            defender_updates["primary_or_secondary"] = features.primary_or_secondary
+        if features.moving_direction is not None:
+            defender_updates["moving_direction"] = features.moving_direction
+        if defender_updates:
+            updates["defender_status"] = base.defender_status.model_copy(update=defender_updates)
+
+        return base.model_copy(update=updates) if updates else base
 
     @staticmethod
     def _from_perception(perception: dict | None) -> BasketballDetails:
@@ -71,23 +66,3 @@ class BasketballDetailExtractor:
             defender_status=DefenderStatus(**(perception.get("defender_status") or _DEFENDER_DEFAULTS)),
             court_geometry=CourtGeometry(**(perception.get("court_geometry") or _COURT_DEFAULTS)),
         )
-
-    @staticmethod
-    def _offensive_control_from_detections(detections: RawDetections | None) -> str | None:
-        """Derive offensive_control_status, or None when it can't be determined.
-
-        Returns None (preserve the perception value) when no ball is detected, so
-        Claude-provided context is never discarded in the hybrid path.
-        """
-        if detections is None:
-            return None
-        saw_ball = False
-        controlled = False
-        for frame in detections.frames:
-            if _frame_has_ball(frame):
-                saw_ball = True
-                if _frame_ball_controlled(frame):
-                    controlled = True
-        if not saw_ball:
-            return None
-        return "gathered" if controlled else "loose_ball"

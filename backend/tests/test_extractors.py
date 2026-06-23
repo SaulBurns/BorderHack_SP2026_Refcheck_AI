@@ -192,3 +192,62 @@ def test_lacrosse_extractor_returns_defaults():
 
 def test_empty_extractor_returns_empty_details():
     assert EmptyDetailExtractor().extract(None, {}) == EmptySportDetails()
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — vision enrichment through the extractor
+# ---------------------------------------------------------------------------
+
+def _tobj(label, x, y, w, h, track_id=None):
+    return DetectionObject(
+        label=label, confidence=0.9, bbox=BoundingBox(x=x, y=y, width=w, height=h), track_id=track_id
+    )
+
+def test_extractor_derives_dribbling():
+    dets = _detections(
+        [_tobj("person", 0.5, 0.5, 0.4, 0.8, 1), _tobj("sports ball", 0.5, 0.5, 0.05, 0.05)],
+        [_tobj("person", 0.55, 0.5, 0.4, 0.8, 1), _tobj("sports ball", 0.55, 0.5, 0.05, 0.05)],
+    )
+    assert BasketballDetailExtractor().extract(dets, {}).offensive_control_status == "dribbling"
+
+def test_extractor_derives_passing():
+    dets = _detections(
+        [_tobj("person", 0.3, 0.5, 0.3, 0.8, 1), _tobj("sports ball", 0.3, 0.5, 0.05, 0.05)],
+        [_tobj("person", 0.7, 0.5, 0.3, 0.8, 2), _tobj("sports ball", 0.7, 0.5, 0.05, 0.05)],
+    )
+    assert BasketballDetailExtractor().extract(dets, {}).offensive_control_status == "passing"
+
+def test_extractor_identifies_primary_defender():
+    dets = _detections([
+        _tobj("person", 0.5, 0.5, 0.3, 0.8),
+        _tobj("sports ball", 0.5, 0.5, 0.05, 0.05),
+        _tobj("person", 0.7, 0.5, 0.3, 0.8, 2),
+    ])
+    assert BasketballDetailExtractor().extract(dets, {}).defender_status.primary_or_secondary == "primary"
+
+def test_extractor_derives_defender_movement():
+    dets = _detections(
+        [_tobj("person", 0.5, 0.5, 0.3, 0.8), _tobj("sports ball", 0.5, 0.5, 0.05, 0.05),
+         _tobj("person", 0.7, 0.5, 0.2, 0.6, 2)],
+        [_tobj("person", 0.5, 0.5, 0.3, 0.8), _tobj("sports ball", 0.5, 0.5, 0.05, 0.05),
+         _tobj("person", 0.9, 0.5, 0.2, 0.6, 2)],
+    )
+    result = BasketballDetailExtractor().extract(dets, {})
+    assert result.defender_status.primary_or_secondary == "primary"
+    assert result.defender_status.moving_direction == "lateral"
+
+def test_extractor_enrichment_preserves_non_derived_perception_fields():
+    dets = _detections(
+        [_tobj("person", 0.5, 0.5, 0.4, 0.8, 1), _tobj("sports ball", 0.5, 0.5, 0.05, 0.05)],
+        [_tobj("person", 0.55, 0.5, 0.4, 0.8, 1), _tobj("sports ball", 0.55, 0.5, 0.05, 0.05)],
+    )
+    result = BasketballDetailExtractor().extract(dets, _FULL_PERCEPTION)
+    assert result.offensive_control_status == "dribbling"  # derived
+    assert result.defender_status.legal_guarding_position == "not_established"  # from perception
+    assert result.court_geometry.key_zone == "restricted_area"  # from perception
+
+def test_extractor_insufficient_detections_keeps_perception_values():
+    dets = _detections([_tobj("person", 0.5, 0.5, 0.3, 0.8)])  # no ball, no defender
+    result = BasketballDetailExtractor().extract(dets, _FULL_PERCEPTION)
+    assert result.defender_status.primary_or_secondary == "secondary"  # from perception
+    assert result.offensive_control_status == "airborne_shooter"  # from perception
