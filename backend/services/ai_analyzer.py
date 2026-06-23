@@ -12,13 +12,10 @@ from typing import Any
 
 from fastapi import UploadFile
 
-from services.detectors import get_detector
+from services.detectors import RawDetections, get_detector
+from services.extractors import get_extractor
 from services.mock_analyzer import analyze_clip as mock_analyze_clip
-from services.perception_schema import (
-    SCHEMA_VERSION,
-    BasketballDetails,
-    get_sport_details_model,
-)
+from services.perception_schema import SCHEMA_VERSION
 
 try:
     import certifi
@@ -877,7 +874,9 @@ def _run_four_agent_pipeline(
     try:
         # Perception runs through the detector registry (default: claude_vision,
         # which delegates to _perception_agent — behavior is unchanged).
-        perception = get_detector().detect(frame_paths, sport, original_call).perception
+        detector_result = get_detector().detect(frame_paths, sport, original_call)
+        perception = detector_result.perception
+        detections = detector_result.detections
         retrieval_query = _retrieval_agent(perception, sport)
         retrieved_rules = _retrieve_rules(retrieval_query, perception, sport)
         adjudicator_a = _adjudicator_agent(
@@ -901,6 +900,7 @@ def _run_four_agent_pipeline(
             "retrieval_query": retrieval_query,
             "retrieved_rules": retrieved_rules,
             "perception": perception,
+            "detections": detections,
             "adjudicator_a": adjudicator_a,
             "adjudicator_b": adjudicator_b,
         }
@@ -964,31 +964,27 @@ def _reconcile(adjudicator_a: dict, adjudicator_b: dict, perception: dict) -> tu
 
 def _sport_details_payload(
     sport: str,
-    offensive_control_status: str,
-    defender_status: dict,
-    court_geometry: dict,
+    perception: dict,
+    detections: RawDetections | None = None,
 ) -> dict:
-    """Build the additive `sport_details` block (Phase 2, backward-compatible).
+    """Build the additive `sport_details` block via the sport detail extractor.
 
-    For basketball the block mirrors the legacy top-level fields exactly — it is
-    populated from the same computed values and validated through
-    ``BasketballDetails`` — so legacy and new stay synchronized. Other sports get
-    their registry placeholder model. Keyed by sport so the frontend can later
-    read ``sport_details[sport]`` (Phase 3).
+    When `detections` are available the extractor derives sport-specific values
+    from them (Phase 6/7); otherwise it reproduces the legacy basketball block
+    exactly from the perception payload, preserving backward compatibility.
+    Keyed by sport so the frontend reads ``sport_details[sport]``.
     """
-    model_cls = get_sport_details_model(sport)
-    if model_cls is BasketballDetails:
-        details = BasketballDetails(
-            offensive_control_status=offensive_control_status,
-            defender_status=defender_status,
-            court_geometry=court_geometry,
-        )
-    else:
-        details = model_cls()
+    details = get_extractor(sport).extract(detections, perception)
     return {sport: details.model_dump()}
 
 
-def _frontend_perception(perception: dict, provider_used: str, retrieval_query: str, sport: str) -> dict:
+def _frontend_perception(
+    perception: dict,
+    provider_used: str,
+    retrieval_query: str,
+    sport: str,
+    detections: RawDetections | None = None,
+) -> dict:
     # Compute the legacy basketball blocks once so the legacy top-level fields
     # and the new `sport_details` block stay synchronized (Phase 2 migration).
     offensive_control_status = str(perception.get("offensive_control_status") or "unclear")
@@ -1039,9 +1035,7 @@ def _frontend_perception(perception: dict, provider_used: str, retrieval_query: 
         },
         "visual_quality": str(perception.get("visual_quality") or "partial"),
         "perception_confidence": _safe_float(perception.get("perception_confidence"), 0.5),
-        "sport_details": _sport_details_payload(
-            sport, offensive_control_status, defender_status, court_geometry
-        ),
+        "sport_details": _sport_details_payload(sport, perception, detections),
         "notes": (
             f"analysis_provider={provider_used}; "
             f"retrieval_query={retrieval_query}; "
@@ -1107,6 +1101,7 @@ def _build_response(
     sport: str,
 ) -> dict:
     perception = agent_result["perception"]
+    detections = agent_result.get("detections")
     retrieved_rules = agent_result["retrieved_rules"]
     provider_used = agent_result["provider_used"]
     retrieval_query = agent_result.get("retrieval_query", "")
@@ -1145,7 +1140,7 @@ def _build_response(
                 "page_number": primary_rule.get("page_number", 1),
                 "similarity_score": 0.86,
             },
-            "perception": _frontend_perception(perception, provider_used, retrieval_query, sport),
+            "perception": _frontend_perception(perception, provider_used, retrieval_query, sport, detections),
             "adjudicator_a": adjudicator_a,
             "adjudicator_b": adjudicator_b,
             "reconciliation_note": reconciliation_note,
