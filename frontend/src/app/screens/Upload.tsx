@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bot, Check, Circle, Clock3, FileVideo, Trophy, CircleDot } from "lucide-react";
+import { Bot, Check, Circle, Clock3, FileVideo, Target, Trophy, CircleDot } from "lucide-react";
 import { analyzeClip, cacheVerdict, cacheLocalVideoUrl } from "../../lib/api";
 
 const sports = [
   { id: "basketball", name: "Basketball", active: true, Icon: Trophy },
-  { id: "tennis", name: "Tennis", active: false, Icon: CircleDot },
+  { id: "hockey", name: "Hockey", active: true, Icon: CircleDot },
+  { id: "soccer", name: "Soccer", active: true, Icon: Circle },
+  { id: "lacrosse", name: "Lacrosse", active: true, Icon: Target },
 ];
 
 const basketballLevels = [

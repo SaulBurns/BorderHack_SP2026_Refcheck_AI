@@ -13,7 +13,70 @@ export interface PlayerObservation {
   body_state: string;
 }
 
+// --- Sport-specific perception detail blocks (mirror backend perception_schema.py) ---
+
+export interface DefenderStatus {
+  primary_or_secondary: string;
+  legal_guarding_position: string;
+  feet_set_before_contact: boolean;
+  moving_direction: string;
+  inside_restricted_area: boolean;
+}
+
+export interface CourtGeometry {
+  key_zone: string;
+  restricted_area_arc_visible: boolean;
+  defender_feet_visible: boolean;
+  basket_visible: boolean;
+}
+
+export interface BasketballDetails {
+  offensive_control_status: string;
+  defender_status: DefenderStatus;
+  court_geometry: CourtGeometry;
+}
+
+export interface HockeyDetails {
+  zone: string;
+  goalie_involved: boolean;
+  puck_possession: string;
+  infraction_candidate: string;
+  boards_involved: boolean;
+}
+
+export interface SoccerDetails {
+  field_third: string;
+  in_penalty_area: boolean;
+  offside_relevant: boolean;
+  last_defender: boolean;
+  handball_candidate: boolean;
+  foul_direction: string;
+}
+
+export interface LacrosseDetails {
+  crease_violation: boolean;
+  cross_check: boolean;
+  slashing: boolean;
+  ball_carrier_status: string;
+  warding: boolean;
+}
+
+export type SportDetails =
+  | BasketballDetails
+  | HockeyDetails
+  | SoccerDetails
+  | LacrosseDetails;
+
+// Backend emits sport_details keyed by sport name (e.g. sport_details.basketball).
+export interface SportDetailsMap {
+  basketball?: BasketballDetails;
+  hockey?: HockeyDetails;
+  soccer?: SoccerDetails;
+  lacrosse?: LacrosseDetails;
+}
+
 export interface EventDescription {
+  schema_version?: number;
   sport: string;
   event_type: string;
   summary: string;
@@ -22,20 +85,11 @@ export interface EventDescription {
   contact_location: string;
   ball_visible: boolean;
   ball_state: string;
+  // Legacy basketball-specific fields. Kept for backward compatibility during the
+  // sport_details migration; prefer reading from `sport_details` (see Phase 3).
   offensive_control_status?: string;
-  defender_status?: {
-    primary_or_secondary: string;
-    legal_guarding_position: string;
-    feet_set_before_contact: boolean;
-    moving_direction: string;
-    inside_restricted_area: boolean;
-  };
-  court_geometry?: {
-    key_zone: string;
-    restricted_area_arc_visible: boolean;
-    defender_feet_visible: boolean;
-    basket_visible: boolean;
-  };
+  defender_status?: DefenderStatus;
+  court_geometry?: CourtGeometry;
   frame_observations?: Array<{
     frame_index: number;
     approx_time_seconds: number;
@@ -50,6 +104,7 @@ export interface EventDescription {
   };
   visual_quality: VisualQuality;
   perception_confidence: number;
+  sport_details?: SportDetailsMap;
   notes: string | null;
 }
 
