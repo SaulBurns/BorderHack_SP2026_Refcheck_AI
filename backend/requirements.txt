@@ -3,3 +3,8 @@ uvicorn
 python-multipart
 python-dotenv
 certifi
+
+# Optional: YOLOv8 object detection (DETECTOR=yolov8 or hybrid).
+# Heavy (pulls in torch); imported lazily and not required for the default
+# DETECTOR=claude_vision. Install only when running YOLO-based detection.
+# ultralytics

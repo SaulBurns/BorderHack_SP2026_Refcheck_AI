@@ -14,7 +14,8 @@ import os
 
 from services.detectors.base import Detector
 from services.detectors.claude_vision import ClaudeVisionDetector
-from services.detectors.placeholders import HybridDetector, YOLODetector
+from services.detectors.hybrid import HybridDetector
+from services.detectors.yolo import YOLODetector
 
 DEFAULT_DETECTOR = "claude_vision"
 DETECTOR_ENV_VAR = "DETECTOR"

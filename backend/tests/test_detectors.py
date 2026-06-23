@@ -25,10 +25,10 @@ from services.detectors import (
 def test_get_detector_claude_vision():
     assert isinstance(get_detector("claude_vision"), ClaudeVisionDetector)
 
-def test_get_detector_yolov8_placeholder():
+def test_get_detector_yolov8():
     assert isinstance(get_detector("yolov8"), YOLODetector)
 
-def test_get_detector_hybrid_placeholder():
+def test_get_detector_hybrid():
     assert isinstance(get_detector("hybrid"), HybridDetector)
 
 def test_get_detector_is_case_insensitive():
@@ -95,23 +95,6 @@ def test_detectors_satisfy_protocol(detector_cls):
 
 
 # ---------------------------------------------------------------------------
-# Placeholder behavior — detect() raises NotImplementedError with clear message
-# ---------------------------------------------------------------------------
-
-def test_yolo_detector_raises_not_implemented():
-    with pytest.raises(NotImplementedError) as exc:
-        YOLODetector().detect([], "basketball", "")
-    assert "YOLOv8" in str(exc.value)
-    assert "claude_vision" in str(exc.value)
-
-def test_hybrid_detector_raises_not_implemented():
-    with pytest.raises(NotImplementedError) as exc:
-        HybridDetector().detect([], "basketball", "")
-    assert "Hybrid" in str(exc.value)
-    assert "claude_vision" in str(exc.value)
-
-
-# ---------------------------------------------------------------------------
 # Custom registry behavior
 # ---------------------------------------------------------------------------
 
@@ -146,8 +129,9 @@ def test_claude_vision_detector_delegates_to_perception_agent(monkeypatch):
     frames = ["f1.jpg", "f2.jpg"]
     result = ClaudeVisionDetector().detect(frames, "basketball", "blocking foul")
 
-    # Returns the perception output verbatim...
-    assert result is sentinel
+    # Wraps the perception output verbatim (identity preserved), no detections...
+    assert result.perception is sentinel
+    assert result.detections is None
     # ...and maps detect(frames, sport, original_call) -> _perception_agent(frames, original_call, sport).
     assert captured["args"] == (frames, "blocking foul", "basketball")
 
@@ -159,5 +143,6 @@ def test_default_detector_routes_perception_through_claude_vision(monkeypatch):
     monkeypatch.setattr(ai, "_perception_agent", lambda f, oc, s: {"sport": s, "routed": True})
 
     # get_detector() (no arg) must produce the behavior-preserving detector.
-    perception = ai.get_detector().detect(["frame.jpg"], "basketball", "")
-    assert perception == {"sport": "basketball", "routed": True}
+    result = ai.get_detector().detect(["frame.jpg"], "basketball", "")
+    assert result.perception == {"sport": "basketball", "routed": True}
+    assert result.detections is None

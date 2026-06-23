@@ -877,7 +877,7 @@ def _run_four_agent_pipeline(
     try:
         # Perception runs through the detector registry (default: claude_vision,
         # which delegates to _perception_agent — behavior is unchanged).
-        perception = get_detector().detect(frame_paths, sport, original_call)
+        perception = get_detector().detect(frame_paths, sport, original_call).perception
         retrieval_query = _retrieval_agent(perception, sport)
         retrieved_rules = _retrieve_rules(retrieval_query, perception, sport)
         adjudicator_a = _adjudicator_agent(

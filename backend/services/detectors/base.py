@@ -5,15 +5,16 @@ perception payload. The default `ClaudeVisionDetector` wraps the existing
 perception logic so behavior is unchanged; YOLOv8/hybrid detectors are
 placeholders for later phases.
 
-In this phase `detect()` returns the raw perception dict (the contract the rest
-of the pipeline already consumes). Mapping to the typed `PerceptionCore` model
-is intentionally deferred to a later phase to avoid any response-shape change.
+`detect()` returns a `DetectorResult` carrying a `perception` dict (the contract
+the rest of the pipeline consumes) plus optional structured `detections`.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+from services.detectors.detection_models import DetectorResult
 
 
 @runtime_checkable
@@ -26,8 +27,8 @@ class Detector(Protocol):
 
     name: str
 
-    def detect(self, frames: list[Path], sport: str, original_call: str) -> dict:
-        """Produce a perception payload for the given frames.
+    def detect(self, frames: list[Path], sport: str, original_call: str) -> DetectorResult:
+        """Produce a detector result for the given frames.
 
         Args:
             frames: Ordered list of extracted frame image paths.
@@ -35,6 +36,7 @@ class Detector(Protocol):
             original_call: The on-court call text, or "" if none.
 
         Returns:
-            The perception dict consumed by the downstream pipeline.
+            A DetectorResult whose `perception` dict is consumed by the
+            downstream pipeline (and optional structured `detections`).
         """
         ...
