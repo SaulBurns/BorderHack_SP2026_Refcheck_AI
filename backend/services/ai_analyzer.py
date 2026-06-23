@@ -13,6 +13,11 @@ from typing import Any
 from fastapi import UploadFile
 
 from services.mock_analyzer import analyze_clip as mock_analyze_clip
+from services.perception_schema import (
+    SCHEMA_VERSION,
+    BasketballDetails,
+    get_sport_details_model,
+)
 
 try:
     import certifi
@@ -954,8 +959,52 @@ def _reconcile(adjudicator_a: dict, adjudicator_b: dict, perception: dict) -> tu
     )
 
 
+def _sport_details_payload(
+    sport: str,
+    offensive_control_status: str,
+    defender_status: dict,
+    court_geometry: dict,
+) -> dict:
+    """Build the additive `sport_details` block (Phase 2, backward-compatible).
+
+    For basketball the block mirrors the legacy top-level fields exactly — it is
+    populated from the same computed values and validated through
+    ``BasketballDetails`` — so legacy and new stay synchronized. Other sports get
+    their registry placeholder model. Keyed by sport so the frontend can later
+    read ``sport_details[sport]`` (Phase 3).
+    """
+    model_cls = get_sport_details_model(sport)
+    if model_cls is BasketballDetails:
+        details = BasketballDetails(
+            offensive_control_status=offensive_control_status,
+            defender_status=defender_status,
+            court_geometry=court_geometry,
+        )
+    else:
+        details = model_cls()
+    return {sport: details.model_dump()}
+
+
 def _frontend_perception(perception: dict, provider_used: str, retrieval_query: str, sport: str) -> dict:
+    # Compute the legacy basketball blocks once so the legacy top-level fields
+    # and the new `sport_details` block stay synchronized (Phase 2 migration).
+    offensive_control_status = str(perception.get("offensive_control_status") or "unclear")
+    defender_status = perception.get("defender_status") or {
+        "primary_or_secondary": "unclear",
+        "legal_guarding_position": "unclear",
+        "feet_set_before_contact": False,
+        "moving_direction": "unclear",
+        "inside_restricted_area": False,
+    }
+    court_geometry = perception.get("court_geometry") or {
+        "key_zone": "backcourt_or_unclear",
+        "restricted_area_arc_visible": False,
+        "defender_feet_visible": False,
+        "basket_visible": False,
+    }
     return {
+        # New additive fields (Phase 2). Legacy fields below are preserved as-is.
+        "schema_version": SCHEMA_VERSION,
         "sport": sport,
         "event_type": str(perception.get("event_type") or "unclear"),
         "summary": str(perception.get("summary") or "The perception agent reviewed the submitted basketball play."),
@@ -973,22 +1022,9 @@ def _frontend_perception(perception: dict, provider_used: str, retrieval_query: 
         "contact_location": str(perception.get("contact_location") or "unclear"),
         "ball_visible": bool(perception.get("ball_visible", False)),
         "ball_state": str(perception.get("ball_state") or "unclear"),
-        "offensive_control_status": str(perception.get("offensive_control_status") or "unclear"),
-        "defender_status": perception.get("defender_status")
-        or {
-            "primary_or_secondary": "unclear",
-            "legal_guarding_position": "unclear",
-            "feet_set_before_contact": False,
-            "moving_direction": "unclear",
-            "inside_restricted_area": False,
-        },
-        "court_geometry": perception.get("court_geometry")
-        or {
-            "key_zone": "backcourt_or_unclear",
-            "restricted_area_arc_visible": False,
-            "defender_feet_visible": False,
-            "basket_visible": False,
-        },
+        "offensive_control_status": offensive_control_status,
+        "defender_status": defender_status,
+        "court_geometry": court_geometry,
         "frame_observations": perception.get("frame_observations") or [],
         "moment_of_interest_seconds": perception.get("moment_of_interest_seconds"),
         "impact_zone": perception.get("impact_zone")
@@ -1000,6 +1036,9 @@ def _frontend_perception(perception: dict, provider_used: str, retrieval_query: 
         },
         "visual_quality": str(perception.get("visual_quality") or "partial"),
         "perception_confidence": _safe_float(perception.get("perception_confidence"), 0.5),
+        "sport_details": _sport_details_payload(
+            sport, offensive_control_status, defender_status, court_geometry
+        ),
         "notes": (
             f"analysis_provider={provider_used}; "
             f"retrieval_query={retrieval_query}; "
