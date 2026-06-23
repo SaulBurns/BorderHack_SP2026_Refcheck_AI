@@ -1,0 +1,35 @@
+"""Detector abstraction layer (Phase 4).
+
+Public API:
+    Detector             - the detector Protocol
+    ClaudeVisionDetector - default, behavior-preserving detector
+    YOLODetector         - placeholder (Phase 5)
+    HybridDetector       - placeholder (Phase 5)
+    DetectorRegistry     - name -> detector class registry
+    registry             - the default registry instance
+    get_detector         - resolve a detector by name / DETECTOR env / default
+    DEFAULT_DETECTOR     - "claude_vision"
+"""
+
+from services.detectors.base import Detector
+from services.detectors.claude_vision import ClaudeVisionDetector
+from services.detectors.placeholders import HybridDetector, YOLODetector
+from services.detectors.registry import (
+    DEFAULT_DETECTOR,
+    DETECTOR_ENV_VAR,
+    DetectorRegistry,
+    get_detector,
+    registry,
+)
+
+__all__ = [
+    "Detector",
+    "ClaudeVisionDetector",
+    "YOLODetector",
+    "HybridDetector",
+    "DetectorRegistry",
+    "registry",
+    "get_detector",
+    "DEFAULT_DETECTOR",
+    "DETECTOR_ENV_VAR",
+]

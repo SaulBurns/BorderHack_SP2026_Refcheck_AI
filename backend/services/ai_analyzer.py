@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import UploadFile
 
+from services.detectors import get_detector
 from services.mock_analyzer import analyze_clip as mock_analyze_clip
 from services.perception_schema import (
     SCHEMA_VERSION,
@@ -874,7 +875,9 @@ def _run_four_agent_pipeline(
         )
 
     try:
-        perception = _perception_agent(frame_paths, original_call, sport)
+        # Perception runs through the detector registry (default: claude_vision,
+        # which delegates to _perception_agent — behavior is unchanged).
+        perception = get_detector().detect(frame_paths, sport, original_call)
         retrieval_query = _retrieval_agent(perception, sport)
         retrieved_rules = _retrieve_rules(retrieval_query, perception, sport)
         adjudicator_a = _adjudicator_agent(
