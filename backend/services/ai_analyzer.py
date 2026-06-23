@@ -686,17 +686,27 @@ def _adjudicator_agent(
     framing: str,
     temperature: float,
     sport: str,
+    sport_details: dict | None = None,
 ) -> dict:
     original_call_line = (
         f"'{original_call}'"
         if original_call
         else "(not provided - judge whether the play was correctly officiated assuming the on-court call was made)"
     )
+    # Detection-derived sport signals (Phase 9). Only included when present, so
+    # the claude_vision/mock path prompt is unchanged.
+    sport_details_section = (
+        "\n\nSPORT-SPECIFIC SIGNALS (derived from object detections; treat as "
+        "supporting evidence, not ground truth):\n"
+        f"{json.dumps(sport_details, indent=2)}"
+        if sport_details
+        else ""
+    )
     prompt = f"""
 Original call: {original_call_line}
 
 PERCEPTION OUTPUT:
-{json.dumps(perception, indent=2)}
+{json.dumps(perception, indent=2)}{sport_details_section}
 
 RETRIEVED RULES:
 {_rules_text(rules)}
@@ -879,6 +889,13 @@ def _run_four_agent_pipeline(
         detections = detector_result.detections
         retrieval_query = _retrieval_agent(perception, sport)
         retrieved_rules = _retrieve_rules(retrieval_query, perception, sport)
+        # Feed detection-derived sport signals to adjudication only when present,
+        # so enriched signals influence verdicts without changing the default path.
+        sport_details_for_adjudication = (
+            get_extractor(sport).extract(detections, perception).model_dump()
+            if detections is not None
+            else None
+        )
         adjudicator_a = _adjudicator_agent(
             perception=perception,
             rules=retrieved_rules,
@@ -886,6 +903,7 @@ def _run_four_agent_pipeline(
             framing=CONSERVATIVE_FRAMING,
             temperature=0.2,
             sport=sport,
+            sport_details=sport_details_for_adjudication,
         )
         adjudicator_b = _adjudicator_agent(
             perception=perception,
@@ -894,6 +912,7 @@ def _run_four_agent_pipeline(
             framing=SKEPTICAL_FRAMING,
             temperature=0.7,
             sport=sport,
+            sport_details=sport_details_for_adjudication,
         )
         return {
             "provider_used": "anthropic_four_agent",
@@ -1091,6 +1110,27 @@ def _key_moment_payload(frame_paths: list[Path], perception: dict, clip_id: str,
     }
 
 
+def _diagnostics_payload(
+    provider_used: str,
+    retrieval_query: str,
+    detections: RawDetections | None,
+) -> dict:
+    """Additive diagnostics block to support evaluation and debugging (Phase 9)."""
+    frame_count = len(detections.frames) if detections is not None else 0
+    object_count = (
+        sum(len(frame.objects) for frame in detections.frames) if detections is not None else 0
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "provider_used": provider_used,
+        "detections_present": detections is not None,
+        "detection_frame_count": frame_count,
+        "detection_object_count": object_count,
+        "sport_details_source": "detections" if detections is not None else "perception",
+        "retrieval_query": retrieval_query,
+    }
+
+
 def _build_response(
     *,
     agent_result: dict,
@@ -1146,6 +1186,7 @@ def _build_response(
             "reconciliation_note": reconciliation_note,
             "processing_time_seconds": round(processing_time_seconds, 1),
         },
+        "diagnostics": _diagnostics_payload(provider_used, retrieval_query, detections),
     }
     if key_moment:
         response["key_moment"] = key_moment

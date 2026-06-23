@@ -1,0 +1,73 @@
+"""Evaluation runner: turn records into an EvaluationReport (Phase 9)."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from evaluation.metrics import (
+    accuracy,
+    cohens_kappa,
+    confidence_by_correctness,
+    confusion_matrix,
+    mean_confidence,
+    per_class_metrics,
+)
+from evaluation.models import (
+    EvaluationRecord,
+    LabeledClip,
+    Prediction,
+    build_records,
+    validate_verdict,
+)
+
+
+@dataclass(frozen=True)
+class EvaluationReport:
+    count: int
+    accuracy: float
+    cohens_kappa: float
+    mean_confidence: float
+    confidence_correct: float
+    confidence_incorrect: float
+    confusion_matrix: dict
+    per_class: dict
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def evaluate(records: list[EvaluationRecord]) -> EvaluationReport:
+    confidence = confidence_by_correctness(records)
+    return EvaluationReport(
+        count=len(records),
+        accuracy=accuracy(records),
+        cohens_kappa=cohens_kappa(records),
+        mean_confidence=mean_confidence(records),
+        confidence_correct=confidence["correct"],
+        confidence_incorrect=confidence["incorrect"],
+        confusion_matrix=confusion_matrix(records),
+        per_class=per_class_metrics(records),
+    )
+
+
+def evaluate_predictions(
+    labeled: list[LabeledClip],
+    predictions: list[Prediction],
+) -> EvaluationReport:
+    return evaluate(build_records(labeled, predictions))
+
+
+def load_labeled_clips(path: str | Path) -> list[LabeledClip]:
+    """Load labeled clips from a JSON array file."""
+    rows = json.loads(Path(path).read_text())
+    return [
+        LabeledClip(
+            clip_id=str(row["clip_id"]),
+            sport=str(row.get("sport", "")),
+            ground_truth_verdict=validate_verdict(str(row["ground_truth_verdict"])),
+            notes=str(row.get("notes", "")),
+        )
+        for row in rows
+    ]

@@ -1,0 +1,20 @@
+[
+  {
+    "clip_id": "demo_block_charge_01",
+    "sport": "basketball",
+    "ground_truth_verdict": "bad_call",
+    "notes": "Secondary defender established position inside the restricted area."
+  },
+  {
+    "clip_id": "demo_vertical_contest_02",
+    "sport": "basketball",
+    "ground_truth_verdict": "fair_call",
+    "notes": "Defender maintained verticality; incidental contact."
+  },
+  {
+    "clip_id": "demo_obstructed_03",
+    "sport": "basketball",
+    "ground_truth_verdict": "inconclusive",
+    "notes": "Key moment is obstructed by another player; angle unusable."
+  }
+]
