@@ -46,11 +46,11 @@ function callFromFeedItem(item: FeedItem) {
     ]
       .filter(Boolean)
       .join(" • "),
-    title: item.original_call || item.call_type || "Uploaded Basketball Call",
+    title: item.original_call || item.call_type || "Uploaded Call",
     description:
       item.reasoning ||
       "This uploaded call was analyzed by RefCheck AI and saved from the live review database.",
-    rule: item.rule_id ? `NBA rule cited: ${item.rule_id}` : "Rule cited by AI review",
+    rule: item.rule_id ? `Rule cited: ${item.rule_id}` : "Rule cited by AI review",
     fairVotes: item.votes_fair || 0,
     badVotes: item.votes_bad || 0,
   };
@@ -116,7 +116,7 @@ export default function ControversialCall() {
           <div className="font-mono bg-black text-white px-4 py-2 rounded">{featuredCall.confidence}</div>
         </div>
         <div className="font-mono text-sm mb-2 opacity-60">
-          {featuredCall.meta || "Uploaded Basketball Clip"}
+          {featuredCall.meta || "Uploaded Clip"}
         </div>
         <h3 className="text-xl mb-3">{featuredCall.title}</h3>
         <p className="text-gray-600 mb-6 leading-relaxed">

@@ -156,8 +156,8 @@ function realItemToClip(item: FeedItem): FeedClip {
   const storedVerdict = item.verdict_json?.verdict;
   const perception = storedVerdict?.perception;
   const rule = storedVerdict?.cited_rule;
-  const displayLeague = item.league || item.level_of_play || "Uploaded Basketball Clip";
-  const displayLevel = item.level_of_play || item.league || "Basketball";
+  const displayLeague = item.league || item.level_of_play || "Uploaded Clip";
+  const displayLevel = item.level_of_play || item.league || "—";
 
   return {
     id: Number.parseInt(item.clip_id.slice(0, 8), 16) || item.clip_id.length,

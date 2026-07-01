@@ -3,7 +3,7 @@ import { Bot, BookOpen, Scale, Upload } from "lucide-react";
 const steps = [
   { number: "01", title: "Upload clip", description: "Submit your controversial call video", Icon: Upload },
   { number: "02", title: "AI analyzes", description: "Our AI reviews the footage frame-by-frame", Icon: Bot },
-  { number: "03", title: "Compare rulebook", description: "Cross-reference with official basketball rules", Icon: BookOpen },
+  { number: "03", title: "Compare rulebook", description: "Cross-reference with the official rulebook for the sport", Icon: BookOpen },
   { number: "04", title: "Return verdict", description: "Get AI verdict + community ratings", Icon: Scale },
 ];
 

@@ -152,7 +152,7 @@ export default function Leaderboard() {
       <h1 className="font-marker text-6xl mb-3 text-center transform -rotate-1">
         THE LEADERBOARD
       </h1>
-      <p className="text-center text-gray-600 mb-12">See how NBA officials rank across community ratings and AI-reviewed calls</p>
+      <p className="text-center text-gray-600 mb-12">See how officials rank across community ratings and AI-reviewed calls</p>
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-8 border-2 border-black/5">

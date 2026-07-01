@@ -18,6 +18,7 @@ import { getCachedVerdict, getCachedLocalVideoUrl, resolveApiUrl } from "../../l
 import type { AnalyzeResponse, Verdict as VerdictType } from "../../lib/types";
 import { VERDICT_COLOR, VERDICT_LABEL } from "../../lib/types";
 import { sportEvidenceRows, sportLabel } from "../../lib/sportEvidence";
+import { isPreviewSport } from "../../lib/sports";
 
 const clampPercent = (value: unknown, fallback: number) => {
   const number = Number(value);
@@ -174,8 +175,19 @@ export default function Verdict() {
           <div className="flex-1">
             <div className="font-marker text-6xl mb-2">{banner.label}</div>
             <div className="font-mono text-sm opacity-90">
-              {sportLabel(v.perception.sport)} · processed in {v.processing_time_seconds.toFixed(1)}s
+              {sportLabel(v.perception.sport)}
+              {isPreviewSport(v.perception.sport) && (
+                <span className="ml-2 bg-white/25 px-2 py-0.5 rounded text-[10px] uppercase tracking-wide">
+                  Preview
+                </span>
+              )}{" "}
+              · processed in {v.processing_time_seconds.toFixed(1)}s
             </div>
+            {isPreviewSport(v.perception.sport) && (
+              <div className="font-mono text-xs opacity-80 mt-1">
+                {sportLabel(v.perception.sport)} is experimental — full AI rules are only configured for basketball today.
+              </div>
+            )}
           </div>
           <div className="text-right">
             <div className="font-mono text-5xl">{confidencePct}%</div>

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { CircleDot, Target, Trophy, Upload, Waves } from "lucide-react";
+import { CircleDot, Target, Upload, Waves } from "lucide-react";
+import { SPORTS } from "../../lib/sports";
 
 export default function Hero() {
   return (
@@ -39,7 +40,7 @@ export default function Hero() {
         </svg>
       </h1>
       <p className="text-2xl mb-10 max-w-2xl mx-auto">
-        From NBA to rec league — was the call fair? Let the AI and the crowd decide.
+        From the pros to the rec league — was the call fair? Let the AI and the crowd decide.
       </p>
       <Link
         href="/upload"
@@ -48,13 +49,15 @@ export default function Hero() {
         <Upload className="mr-2 inline h-5 w-5" />
         Upload a Clip
       </Link>
-      <div className="mt-16 flex justify-center gap-8 font-mono text-sm opacity-60">
-        <div className="flex items-center gap-2">
-          <Trophy className="h-4 w-4" /> Basketball
-        </div>
-        <div className="flex items-center gap-2">
-          <CircleDot className="h-4 w-4" /> Tennis coming soon
-        </div>
+      <div className="mt-16 flex flex-wrap justify-center gap-6 font-mono text-sm opacity-60">
+        {SPORTS.map((sport) => (
+          <div key={sport.id} className="flex items-center gap-2">
+            <sport.Icon className="h-4 w-4" /> {sport.name}
+            {sport.supportLevel === "preview" && (
+              <span className="text-xs opacity-70">(preview)</span>
+            )}
+          </div>
+        ))}
       </div>
     </section>
   );

@@ -2,30 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bot, Check, Circle, Clock3, FileVideo, Target, Trophy, CircleDot } from "lucide-react";
+import { Bot, Check, Circle, Clock3, FileVideo } from "lucide-react";
 import { analyzeClip, cacheVerdict, cacheLocalVideoUrl } from "../../lib/api";
-
-const sports = [
-  { id: "basketball", name: "Basketball", active: true, Icon: Trophy },
-  { id: "hockey", name: "Hockey", active: true, Icon: CircleDot },
-  { id: "soccer", name: "Soccer", active: true, Icon: Circle },
-  { id: "lacrosse", name: "Lacrosse", active: true, Icon: Target },
-];
-
-const basketballLevels = [
-  "Professional",
-  "College / University",
-  "High School",
-  "Youth / AAU",
-  "Rec League",
-  "Pickup / Street",
-  "Other",
-];
+import { SPORTS, DEFAULT_SPORT_ID, getSport, isPreviewSport } from "../../lib/sports";
 
 const loadingSteps = [
   "Extracting frames from video...",
   "Analyzing play mechanics...",
-  "Checking basketball rulebook...",
+  "Checking the rulebook...",
   "Cross-checking with second adjudicator...",
 ];
 
@@ -33,7 +17,7 @@ export default function Upload() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [selectedSport, setSelectedSport] = useState("basketball");
+  const [selectedSport, setSelectedSport] = useState(DEFAULT_SPORT_ID);
   const [dragActive, setDragActive] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -97,13 +81,16 @@ export default function Upload() {
     }
   };
 
+  const sport = getSport(selectedSport);
+  const previewSelected = isPreviewSport(selectedSport);
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-16">
       <h1 className="font-marker text-6xl mb-4 text-center transform -rotate-1">
         ANALYZE A CALL
       </h1>
       <p className="text-center text-lg mb-12 text-gray-600">
-        Upload any basketball clip from any level — pro, college, high school, or rec league
+        Upload a clip from any sport and level — our AI reviews the call against the rulebook.
       </p>
 
       {!analyzing ? (
@@ -112,33 +99,38 @@ export default function Upload() {
           <div>
             <label className="block mb-4 font-mono text-sm opacity-60">SELECT SPORT</label>
             <div className="grid grid-cols-2 gap-3">
-              {sports.map((sport) => (
+              {SPORTS.map((option) => (
                 <button
-                  key={sport.id}
-                  onClick={() => sport.active && setSelectedSport(sport.id)}
-                  disabled={!sport.active}
+                  key={option.id}
+                  onClick={() => setSelectedSport(option.id)}
                   className={`
                     relative p-4 rounded-lg border-2 transition-all
                     ${
-                      sport.active
-                        ? selectedSport === sport.id
-                          ? "bg-black text-white border-black shadow-[4px_4px_0_0_rgba(0,0,0,0.3)]"
-                          : "bg-white border-black/10 hover:border-black/30"
-                        : "bg-gray-100 border-gray-200 opacity-50 cursor-not-allowed"
+                      selectedSport === option.id
+                        ? "bg-black text-white border-black shadow-[4px_4px_0_0_rgba(0,0,0,0.3)]"
+                        : "bg-white border-black/10 hover:border-black/30"
                     }
                   `}
                 >
-                  <sport.Icon className="mx-auto mb-2 h-8 w-8" />
-                  <div className="text-sm">{sport.name}</div>
-                  {!sport.active && (
+                  <option.Icon className="mx-auto mb-2 h-8 w-8" />
+                  <div className="text-sm">{option.name}</div>
+                  {option.supportLevel === "preview" && (
                     <div className="absolute -top-2 -right-2 bg-[#F6B40F] text-xs px-2 py-1 rounded transform rotate-12 shadow-sm">
-                      Soon
+                      Preview
                     </div>
                   )}
                 </button>
               ))}
             </div>
           </div>
+
+          {previewSelected && (
+            <div className="bg-[#F6B40F]/10 border-2 border-[#F6B40F] text-sm p-4 rounded-lg font-mono">
+              <span className="font-semibold">{sport.name} is in preview.</span>{" "}
+              AI analysis is experimental and the {sport.rulebookName} isn&apos;t fully configured yet — expect an
+              inconclusive result. Basketball has full AI support today.
+            </div>
+          )}
 
           {/* Upload Zone */}
           <div>
@@ -239,7 +231,7 @@ export default function Upload() {
               className="w-full px-4 py-3 bg-white border-2 border-black/10 rounded-lg focus:border-black focus:outline-none transition-colors"
             >
               <option value="">Select level...</option>
-              {basketballLevels.map((l) => (
+              {sport.levels.map((l) => (
                 <option key={l} value={l}>
                   {l}
                 </option>
@@ -256,7 +248,7 @@ export default function Upload() {
               type="text"
               value={league}
               onChange={(e) => setLeague(e.target.value)}
-              placeholder="e.g., NBA, NCAA, FIBA, EuroLeague, local rec league"
+              placeholder={sport.leaguePlaceholder}
               className="w-full px-4 py-3 bg-white border-2 border-black/10 rounded-lg focus:border-black focus:outline-none transition-colors"
             />
           </div>
@@ -270,7 +262,7 @@ export default function Upload() {
               type="text"
               value={originalCall}
               onChange={(e) => setOriginalCall(e.target.value)}
-              placeholder="e.g., Blocking foul, Traveling, Out of bounds"
+              placeholder={sport.callPlaceholder}
               className="w-full px-4 py-3 bg-white border-2 border-black/10 rounded-lg focus:border-black focus:outline-none transition-colors"
             />
           </div>
@@ -319,7 +311,7 @@ export default function Upload() {
           )}
           <div className="text-center mb-8">
             <Bot className="mx-auto mb-4 h-16 w-16 animate-bounce text-[#3B82F6]" strokeWidth={1.8} />
-            <h2 className="text-2xl mb-2">Analyzing Your Clip...</h2>
+            <h2 className="text-2xl mb-2">Analyzing your {sport.name} clip...</h2>
             <p className="text-gray-500">This usually takes 15-30 seconds</p>
           </div>
 
