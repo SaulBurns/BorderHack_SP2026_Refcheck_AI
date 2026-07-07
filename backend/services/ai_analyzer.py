@@ -1227,7 +1227,7 @@ def analyze_clip(
         video_metadata=video_metadata,
     )
 
-    return _build_response(
+    response = _build_response(
         agent_result=agent_result,
         clip_id=clip_id,
         frame_paths=frame_paths,
@@ -1235,3 +1235,22 @@ def analyze_clip(
         processing_time_seconds=perf_counter() - start,
         sport=normalized_sport,
     )
+
+    # Additive, basketball-only game-context enrichment. Fully guarded: any
+    # failure (missing nba_api, network, bad data) is swallowed so the verdict
+    # is never affected. Non-basketball sports get no game_context field.
+    try:
+        from services.metadata import resolve_clip_game_context
+
+        game_context = resolve_clip_game_context(
+            sport=normalized_sport,
+            league=normalized_league,
+            original_call=normalized_original_call,
+            video_metadata=video_metadata,
+        )
+        if game_context is not None:
+            response["game_context"] = game_context.model_dump()
+    except Exception:
+        pass
+
+    return response

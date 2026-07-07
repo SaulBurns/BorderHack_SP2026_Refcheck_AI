@@ -136,6 +136,45 @@ export interface FinalVerdict {
   processing_time_seconds: number;
 }
 
+// --- Optional NBA game-context enrichment (basketball only, Phase 10A) ---
+
+export type GameResolutionStatus =
+  | "resolved"
+  | "candidate_match"
+  | "unresolved"
+  | "skipped";
+
+export interface GameCandidate {
+  provider: "nba";
+  game_id: string;
+  game_date?: string | null;
+  home_team?: string | null;
+  away_team?: string | null;
+  home_team_code?: string | null;
+  away_team_code?: string | null;
+  status_text?: string | null;
+  confidence?: number | null;
+  match_reasons: string[];
+}
+
+export interface GameContext {
+  provider: "nba";
+  game_id?: string | null;
+  game_date?: string | null;
+  home_team?: string | null;
+  away_team?: string | null;
+  home_team_code?: string | null;
+  away_team_code?: string | null;
+  season?: string | null;
+  quarter?: string | null;
+  clock?: string | null;
+  score_summary?: string | null;
+  resolution_status: GameResolutionStatus;
+  confidence?: number | null;
+  match_reasons: string[];
+  candidates?: GameCandidate[];
+}
+
 export interface AnalyzeResponse {
   verdict: FinalVerdict;
   clip_id: string;
@@ -147,6 +186,8 @@ export interface AnalyzeResponse {
     title: string;
     explanation: string;
   };
+  // Additive; present only for basketball clips.
+  game_context?: GameContext;
 }
 
 // Display helpers

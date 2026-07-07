@@ -75,6 +75,7 @@ export default function Verdict() {
   }
 
   const v = data.verdict;
+  const gameContext = data.game_context;
   const verdictKey: VerdictType = v.verdict;
   const banner = {
     label: VERDICT_LABEL[verdictKey],
@@ -364,6 +365,56 @@ export default function Verdict() {
           ))}
         </div>
       </div>
+
+      {/* NBA Game Context (basketball only, additive) */}
+      {gameContext && gameContext.resolution_status !== "skipped" && (
+        <div className="bg-white rounded-xl shadow-[4px_4px_0_0_rgba(0,0,0,0.08)] p-5 mb-6 border-2 border-black/5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="font-mono text-xs opacity-60 tracking-wider">NBA GAME CONTEXT</div>
+            <span className="font-mono text-[10px] uppercase tracking-wide px-2 py-0.5 rounded bg-black/5">
+              {gameContext.resolution_status.replace(/_/g, " ")}
+            </span>
+          </div>
+          {gameContext.resolution_status === "unresolved" ? (
+            <p className="text-sm text-gray-600">
+              Game not identified from this clip. Add a date or team names to the filename to improve matching.
+            </p>
+          ) : (
+            <div className="space-y-1 text-sm">
+              {(gameContext.away_team || gameContext.home_team) && (
+                <div className="text-lg font-medium">
+                  {gameContext.away_team || gameContext.away_team_code || "Away"}
+                  {" @ "}
+                  {gameContext.home_team || gameContext.home_team_code || "Home"}
+                </div>
+              )}
+              {gameContext.score_summary && (
+                <div className="font-mono text-gray-700">{gameContext.score_summary}</div>
+              )}
+              <div className="text-gray-500 flex flex-wrap gap-x-3">
+                {gameContext.game_date && <span>{gameContext.game_date}</span>}
+                {gameContext.season && <span>Season {gameContext.season}</span>}
+                {gameContext.quarter && (
+                  <span>
+                    {gameContext.quarter}
+                    {gameContext.clock ? ` · ${gameContext.clock}` : ""}
+                  </span>
+                )}
+              </div>
+              {gameContext.resolution_status === "candidate_match" && (
+                <div className="text-xs text-[#B8860B]">
+                  Best guess — {gameContext.candidates?.length ?? 0} candidate game(s) matched.
+                </div>
+              )}
+            </div>
+          )}
+          {gameContext.match_reasons && gameContext.match_reasons.length > 0 && (
+            <div className="mt-3 text-[11px] text-gray-400 font-mono">
+              Matched via: {gameContext.match_reasons.slice(0, 3).join(" · ")}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Rule Cited */}
       {v.cited_rule && (
