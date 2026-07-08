@@ -9,7 +9,8 @@ certifi
 # DETECTOR=claude_vision. Install only when running YOLO-based detection.
 # ultralytics
 
-# Optional: NBA game-metadata enrichment (basketball `game_context`).
-# Pure-Python but pulls in requests + pandas. Imported lazily; the app runs
-# fine without it (game_context degrades to "unresolved"/"skipped").
-# nba_api
+# NBA game-metadata enrichment (basketball `game_context`).
+# Pure-Python but pulls in requests + pandas. Imported lazily and fully guarded:
+# the app still runs and returns verdicts if it is missing or rate-limited
+# (game_context degrades to "unresolved"/"skipped"/"unavailable").
+nba_api

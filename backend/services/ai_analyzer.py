@@ -884,7 +884,8 @@ def _run_four_agent_pipeline(
     try:
         # Perception runs through the detector registry (default: claude_vision,
         # which delegates to _perception_agent — behavior is unchanged).
-        detector_result = get_detector().detect(frame_paths, sport, original_call)
+        detector = get_detector()
+        detector_result = detector.detect(frame_paths, sport, original_call)
         perception = detector_result.perception
         detections = detector_result.detections
         retrieval_query = _retrieval_agent(perception, sport)
@@ -916,6 +917,7 @@ def _run_four_agent_pipeline(
         )
         return {
             "provider_used": "anthropic_four_agent",
+            "detector": detector.name,
             "retrieval_query": retrieval_query,
             "retrieved_rules": retrieved_rules,
             "perception": perception,
@@ -1110,24 +1112,73 @@ def _key_moment_payload(frame_paths: list[Path], perception: dict, clip_id: str,
     }
 
 
+_PERSON_LABELS = {"person", "player"}
+_BALL_LABELS = {"sports ball", "basketball", "ball"}
+
+
+def _detection_summary(detections: RawDetections | None) -> dict:
+    """Compact, label-based counts for diagnostics (no heavy new work)."""
+    if detections is None:
+        return {
+            "detection_frame_count": 0,
+            "detection_object_count": 0,
+            "tracking_present": False,
+            "tracked_object_count": 0,
+            "player_count": 0,
+            "ball_present": False,
+        }
+    object_count = 0
+    tracked = 0
+    players: set = set()
+    ball_present = False
+    for frame in detections.frames:
+        for obj in frame.objects:
+            object_count += 1
+            label = obj.label.lower()
+            if obj.track_id is not None:
+                tracked += 1
+            if label in _PERSON_LABELS:
+                players.add(obj.track_id if obj.track_id is not None else f"anon-{object_count}")
+            if label in _BALL_LABELS:
+                ball_present = True
+    return {
+        "detection_frame_count": len(detections.frames),
+        "detection_object_count": object_count,
+        "tracking_present": tracked > 0,
+        "tracked_object_count": tracked,
+        "player_count": len(players),
+        "ball_present": ball_present,
+    }
+
+
 def _diagnostics_payload(
     provider_used: str,
     retrieval_query: str,
     detections: RawDetections | None,
+    detector: str | None = None,
+    frames_analyzed: int = 0,
 ) -> dict:
-    """Additive diagnostics block to support evaluation and debugging (Phase 9)."""
-    frame_count = len(detections.frames) if detections is not None else 0
-    object_count = (
-        sum(len(frame.objects) for frame in detections.frames) if detections is not None else 0
-    )
+    """Additive diagnostics block to support evaluation and debugging (Phase 9/10B).
+
+    Makes it obvious what actually ran: which detector path, whether detections
+    (and stable track_ids) were produced, whether sport_details were enriched
+    from detections or came purely from perception, and compact debug counts.
+    Metadata status is attached later in analyze_clip once game_context resolves.
+    """
+    detector_path = detector or ("mock" if provider_used == "mock" else "unknown")
+    summary = _detection_summary(detections)
     return {
         "schema_version": SCHEMA_VERSION,
         "provider_used": provider_used,
+        "detector": detector_path,
+        "frames_analyzed": frames_analyzed,
         "detections_present": detections is not None,
-        "detection_frame_count": frame_count,
-        "detection_object_count": object_count,
         "sport_details_source": "detections" if detections is not None else "perception",
         "retrieval_query": retrieval_query,
+        # metadata_* are filled in by analyze_clip (after game_context resolves).
+        "metadata_attempted": False,
+        "metadata_status": "not_applicable",
+        **summary,
     }
 
 
@@ -1186,7 +1237,13 @@ def _build_response(
             "reconciliation_note": reconciliation_note,
             "processing_time_seconds": round(processing_time_seconds, 1),
         },
-        "diagnostics": _diagnostics_payload(provider_used, retrieval_query, detections),
+        "diagnostics": _diagnostics_payload(
+            provider_used,
+            retrieval_query,
+            detections,
+            detector=agent_result.get("detector"),
+            frames_analyzed=len(frame_paths),
+        ),
     }
     if key_moment:
         response["key_moment"] = key_moment
@@ -1239,6 +1296,8 @@ def analyze_clip(
     # Additive, basketball-only game-context enrichment. Fully guarded: any
     # failure (missing nba_api, network, bad data) is swallowed so the verdict
     # is never affected. Non-basketball sports get no game_context field.
+    metadata_attempted = False
+    metadata_status = "not_applicable"
     try:
         from services.metadata import resolve_clip_game_context
 
@@ -1249,8 +1308,18 @@ def analyze_clip(
             video_metadata=video_metadata,
         )
         if game_context is not None:
-            response["game_context"] = game_context.model_dump()
+            metadata_attempted = True
+            payload = game_context.model_dump()
+            response["game_context"] = payload
+            metadata_status = payload.get("resolution_status", "unresolved")
     except Exception:
-        pass
+        metadata_attempted = True
+        metadata_status = "unavailable"
+
+    # Surface metadata status in diagnostics (additive; never affects the verdict).
+    diagnostics = response.get("diagnostics")
+    if isinstance(diagnostics, dict):
+        diagnostics["metadata_attempted"] = metadata_attempted
+        diagnostics["metadata_status"] = metadata_status
 
     return response

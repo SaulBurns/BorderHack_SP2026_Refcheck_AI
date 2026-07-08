@@ -19,9 +19,10 @@ from services.detectors.detection_models import (
     RawDetections,
 )
 
-DETECTOR_VERSION = "0.1.0"
+DETECTOR_VERSION = "0.2.0"
 DEFAULT_MODEL = "yolov8n.pt"
 DEFAULT_CONFIDENCE = 0.25
+DEFAULT_TRACKER = "bytetrack.yaml"
 
 
 @dataclass(frozen=True)
@@ -87,10 +88,16 @@ class YoloInferenceService:
         model: str = DEFAULT_MODEL,
         predictor: Predictor | None = None,
         confidence: float = DEFAULT_CONFIDENCE,
+        use_tracking: bool = True,
+        tracker: str = DEFAULT_TRACKER,
     ) -> None:
         self._model = model
         self._predictor = predictor
         self._confidence = confidence
+        # Tracking (model.track with persist) gives stable track_id's across the
+        # clip's frames; detection-only (model.predict) leaves track_id None.
+        self._use_tracking = use_tracking
+        self._tracker = tracker
         self._loaded_model = None  # cached ultralytics model
 
     def _load_model(self):
@@ -105,9 +112,8 @@ class YoloInferenceService:
             self._loaded_model = YOLO(self._model)
         return self._loaded_model
 
-    def _default_predictor(self, frame_path: Path) -> list[RawBox]:  # pragma: no cover
-        model = self._load_model()
-        results = model.predict(source=str(frame_path), conf=self._confidence, verbose=False)
+    @staticmethod
+    def _parse_results(results) -> list[RawBox]:
         boxes: list[RawBox] = []
         for result in results:
             names = result.names
@@ -131,15 +137,40 @@ class YoloInferenceService:
                 )
         return boxes
 
-    def _predict(self, frame_path: Path) -> list[RawBox]:
-        predictor = self._predictor or self._default_predictor
-        return predictor(frame_path)
+    def _default_predictor(self, frame_path: Path, persist: bool) -> list[RawBox]:
+        """Run the loaded ultralytics model on one frame.
+
+        Uses `model.track(persist=...)` so track_id's stay stable across the
+        clip's frames; falls back to `model.predict` when tracking is disabled.
+        `persist=True` keeps the tracker state between successive frames.
+        """
+        model = self._load_model()
+        if self._use_tracking:
+            results = model.track(
+                source=str(frame_path),
+                persist=persist,
+                tracker=self._tracker,
+                conf=self._confidence,
+                verbose=False,
+            )
+        else:  # pragma: no cover - detection-only fallback
+            results = model.predict(source=str(frame_path), conf=self._confidence, verbose=False)
+        return self._parse_results(results)
 
     def infer(self, frame_paths: list[Path]) -> RawDetections:
-        """Run inference over ordered frame paths and return normalized detections."""
+        """Run inference over ordered frame paths and return normalized detections.
+
+        For the default (ultralytics) path, frames are processed in order with the
+        tracker persisting across them. An injected `predictor` is called per frame
+        unchanged (tests / custom backends).
+        """
         frames: list[FrameDetections] = []
         for index, frame_path in enumerate(frame_paths):
-            raw_boxes = self._predict(Path(frame_path))
+            path = Path(frame_path)
+            if self._predictor is not None:
+                raw_boxes = self._predictor(path)
+            else:
+                raw_boxes = self._default_predictor(path, persist=index > 0)
             objects = [normalize_box(box) for box in raw_boxes]
             frames.append(FrameDetections(frame_index=index, objects=objects))
         return RawDetections(
