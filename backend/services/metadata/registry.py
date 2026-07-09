@@ -36,12 +36,18 @@ def resolve_clip_game_context(
         return None
 
     metadata = video_metadata or {}
+    # Optional explicit hints ride the existing video_metadata dict (additive,
+    # backward compatible). When absent, resolution falls back to filename parsing
+    # exactly as before, so the /api/analyze contract is unchanged.
     request = ClipMetadataRequest(
         sport=sport,
         league=league,
         original_call=original_call,
         video_filename=metadata.get("filename"),
-        manual_game_id=manual_game_id,
+        clip_date_hint=metadata.get("clip_date_hint"),
+        home_team_hint=metadata.get("home_team_hint"),
+        away_team_hint=metadata.get("away_team_hint"),
+        manual_game_id=manual_game_id or metadata.get("manual_game_id"),
     )
     try:
         return provider.resolve_game_context(request)
