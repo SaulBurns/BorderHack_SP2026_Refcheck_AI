@@ -1,0 +1,34 @@
+[
+  {
+    "clip_id": "nba_block_charge_01",
+    "sport": "basketball",
+    "video_path": "demo_clips/nba_block_charge_01.mp4",
+    "original_call": "Blocking foul on the defender",
+    "expected_verdict": "fair_call",
+    "game_date": "2024-12-25",
+    "home_team": "LAL",
+    "away_team": "BOS",
+    "notes": "Baseline sponsor demo clip (block/charge at the rim). PLACEHOLDER media."
+  },
+  {
+    "clip_id": "nba_out_of_bounds_02",
+    "sport": "basketball",
+    "video_path": "demo_clips/nba_out_of_bounds_02.mp4",
+    "original_call": "Ball awarded to the home team out of bounds",
+    "expected_verdict": "inconclusive",
+    "game_date": "2025-01-15",
+    "home_team": "NYK",
+    "away_team": "MIL",
+    "notes": "Contested out-of-bounds possession. PLACEHOLDER media."
+  },
+  {
+    "clip_id": "nba_travel_03",
+    "sport": "basketball",
+    "video_path": "demo_clips/nba_travel_03.mp4",
+    "original_call": "No travel called on the drive",
+    "expected_verdict": "bad_call",
+    "home_team": "GSW",
+    "away_team": "DAL",
+    "notes": "Gather-step travel review, no explicit date hint. PLACEHOLDER media."
+  }
+]

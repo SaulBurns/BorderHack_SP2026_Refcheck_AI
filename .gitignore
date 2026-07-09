@@ -31,6 +31,9 @@ frontend/coverage/
 # FAISS binary index — built at deploy time by build.sh / scripts/build_faiss.py
 *.faiss
 
+# Generated demo-suite reports (produced by scripts/run_demo_suite.py)
+backend/demo_reports/
+
 # misc
 .DS_Store
 frontend.next.backup/
