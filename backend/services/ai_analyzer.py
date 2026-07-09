@@ -747,6 +747,7 @@ def _mock_ai_result(
     )
     return {
         "provider_used": "mock",
+        "fallback_reason": fallback_reason,
         "retrieval_query": "",
         "retrieved_rules": [
             {
@@ -1157,6 +1158,7 @@ def _diagnostics_payload(
     detections: RawDetections | None,
     detector: str | None = None,
     frames_analyzed: int = 0,
+    fallback_reason: str | None = None,
 ) -> dict:
     """Additive diagnostics block to support evaluation and debugging (Phase 9/10B).
 
@@ -1171,6 +1173,9 @@ def _diagnostics_payload(
         "schema_version": SCHEMA_VERSION,
         "provider_used": provider_used,
         "detector": detector_path,
+        # None on a real anthropic run; the reason string when the pipeline
+        # degraded to mock (missing key/ffmpeg/ultralytics, or AI_PROVIDER=mock).
+        "fallback_reason": fallback_reason,
         "frames_analyzed": frames_analyzed,
         "detections_present": detections is not None,
         "sport_details_source": "detections" if detections is not None else "perception",
@@ -1243,6 +1248,7 @@ def _build_response(
             detections,
             detector=agent_result.get("detector"),
             frames_analyzed=len(frame_paths),
+            fallback_reason=agent_result.get("fallback_reason"),
         ),
     }
     if key_moment:
