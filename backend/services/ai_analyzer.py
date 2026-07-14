@@ -14,6 +14,7 @@ from fastapi import UploadFile
 
 from services.detectors import RawDetections, get_detector
 from services.extractors import get_extractor
+from services.extractors.basketball_vision import summarize_tracked_evidence
 from services.mock_analyzer import analyze_clip as mock_analyze_clip
 from services.perception_schema import SCHEMA_VERSION
 
@@ -687,6 +688,7 @@ def _adjudicator_agent(
     temperature: float,
     sport: str,
     sport_details: dict | None = None,
+    tracked_evidence: dict | None = None,
 ) -> dict:
     original_call_line = (
         f"'{original_call}'"
@@ -702,11 +704,23 @@ def _adjudicator_agent(
         if sport_details
         else ""
     )
+    # Tracking-grounded evidence (Phase 10C). Higher-fidelity than the perception
+    # summary: player identities, per-frame possession, movement over the whole
+    # clip. Only included when detections produced it, so other paths are unchanged.
+    tracked_evidence_section = (
+        "\n\nTRACKED DETECTION EVIDENCE (object tracking across frames; "
+        "higher-fidelity than the perception summary — use it to ground possession, "
+        "player identity, and movement direction. track_ids are stable identities, "
+        "not roles):\n"
+        f"{json.dumps(tracked_evidence, indent=2)}"
+        if tracked_evidence
+        else ""
+    )
     prompt = f"""
 Original call: {original_call_line}
 
 PERCEPTION OUTPUT:
-{json.dumps(perception, indent=2)}{sport_details_section}
+{json.dumps(perception, indent=2)}{sport_details_section}{tracked_evidence_section}
 
 RETRIEVED RULES:
 {_rules_text(rules)}
@@ -898,6 +912,14 @@ def _run_four_agent_pipeline(
             if detections is not None
             else None
         )
+        # Tracking-grounded evidence for adjudication + confidence calibration
+        # (Phase 10C). Basketball-scoped this sprint; None leaves the prompt and
+        # reconciliation exactly as before for every other path.
+        tracked_evidence = (
+            summarize_tracked_evidence(detections)
+            if detections is not None and sport == "basketball"
+            else None
+        )
         adjudicator_a = _adjudicator_agent(
             perception=perception,
             rules=retrieved_rules,
@@ -906,6 +928,7 @@ def _run_four_agent_pipeline(
             temperature=0.2,
             sport=sport,
             sport_details=sport_details_for_adjudication,
+            tracked_evidence=tracked_evidence,
         )
         adjudicator_b = _adjudicator_agent(
             perception=perception,
@@ -915,6 +938,7 @@ def _run_four_agent_pipeline(
             temperature=0.7,
             sport=sport,
             sport_details=sport_details_for_adjudication,
+            tracked_evidence=tracked_evidence,
         )
         return {
             "provider_used": "anthropic_four_agent",
@@ -923,6 +947,7 @@ def _run_four_agent_pipeline(
             "retrieved_rules": retrieved_rules,
             "perception": perception,
             "detections": detections,
+            "tracked_evidence": tracked_evidence,
             "adjudicator_a": adjudicator_a,
             "adjudicator_b": adjudicator_b,
         }
@@ -955,7 +980,12 @@ def _rule_by_id(rule_id: str | None, rules: list[dict]) -> dict:
     }
 
 
-def _reconcile(adjudicator_a: dict, adjudicator_b: dict, perception: dict) -> tuple[str, float, str]:
+def _reconcile(
+    adjudicator_a: dict,
+    adjudicator_b: dict,
+    perception: dict,
+    detection_confidence: float | None = None,
+) -> tuple[str, float, str]:
     verdict_a = _frontend_verdict(adjudicator_a.get("verdict"))
     verdict_b = _frontend_verdict(adjudicator_b.get("verdict"))
     confidence_a = _safe_float(adjudicator_a.get("confidence"), 0.5)
@@ -971,9 +1001,15 @@ def _reconcile(adjudicator_a: dict, adjudicator_b: dict, perception: dict) -> tu
         )
 
     if verdict_a == verdict_b:
+        agreed = (confidence_a + confidence_b + perception_confidence) / 3
+        # Calibrate with tracking coverage when available: strong tracking nudges
+        # up, weak tracking nudges toward caution. Bounded to ±0.05 so detections
+        # calibrate but never override the adjudicators. None => unchanged.
+        if detection_confidence is not None:
+            agreed += 0.1 * (_safe_float(detection_confidence, 0.5) - 0.5)
         return (
             verdict_a,
-            round((confidence_a + confidence_b + perception_confidence) / 3, 2),
+            round(max(0.0, min(1.0, agreed)), 2),
             "Both adjudicators reached the same verdict from different review postures, increasing confidence in the final call.",
         )
 
@@ -1203,8 +1239,12 @@ def _build_response(
     retrieval_query = agent_result.get("retrieval_query", "")
     adjudicator_a_raw = agent_result["adjudicator_a"]
     adjudicator_b_raw = agent_result["adjudicator_b"]
+    tracked_evidence = agent_result.get("tracked_evidence")
+    detection_confidence = (
+        tracked_evidence.get("tracking_confidence") if isinstance(tracked_evidence, dict) else None
+    )
     final_verdict, final_confidence, reconciliation_note = _reconcile(
-        adjudicator_a_raw, adjudicator_b_raw, perception
+        adjudicator_a_raw, adjudicator_b_raw, perception, detection_confidence
     )
     primary_rule = _rule_by_id(
         adjudicator_a_raw.get("primary_rule_id") or adjudicator_b_raw.get("primary_rule_id"),

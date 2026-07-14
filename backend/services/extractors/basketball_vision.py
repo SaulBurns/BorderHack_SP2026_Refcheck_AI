@@ -121,19 +121,42 @@ def possession_status(detections: RawDetections) -> str | None:
     return "loose_ball"
 
 
+def _direction_label(dx: float, dy: float) -> str:
+    """Map an image-space displacement vector to a coarse movement label."""
+    if math.hypot(dx, dy) < _MOVEMENT_EPSILON:
+        return "stationary"
+    if abs(dx) >= abs(dy):
+        return "lateral"
+    return "vertical" if dy < 0 else "forward"
+
+
 def movement_direction(trajectory: list[tuple[int, BoundingBox]]) -> str | None:
     """Coarse image-space movement label from a track's net displacement."""
     if not trajectory or len(trajectory) < 2:
         return None
     _, first = trajectory[0]
     _, last = trajectory[-1]
-    dx = last.x - first.x
-    dy = last.y - first.y
-    if math.hypot(dx, dy) < _MOVEMENT_EPSILON:
-        return "stationary"
-    if abs(dx) >= abs(dy):
-        return "lateral"
-    return "vertical" if dy < 0 else "forward"
+    return _direction_label(last.x - first.x, last.y - first.y)
+
+
+def trajectory_movement(trajectory: list[tuple[int, BoundingBox]]) -> str | None:
+    """Temporally-grounded movement label using every frame in the trajectory.
+
+    Averages box centers over the first vs. second half of the track (rather than
+    only the endpoints) so a single jittery frame cannot flip the label. For a
+    two-point track this reduces to the same net-displacement as
+    ``movement_direction``.
+    """
+    if not trajectory or len(trajectory) < 2:
+        return None
+    midpoint = len(trajectory) / 2
+    first_half = [box for _, box in trajectory[: math.ceil(midpoint)]]
+    second_half = [box for _, box in trajectory[len(trajectory) // 2 :]]
+    first_x = sum(b.x for b in first_half) / len(first_half)
+    first_y = sum(b.y for b in first_half) / len(first_half)
+    last_x = sum(b.x for b in second_half) / len(second_half)
+    last_y = sum(b.y for b in second_half) / len(second_half)
+    return _direction_label(last_x - first_x, last_y - first_y)
 
 
 def identify_primary_defender(detections: RawDetections) -> tuple[int | None, bool]:
@@ -171,3 +194,117 @@ def analyze_basketball(detections: RawDetections) -> BasketballVisionFeatures:
         moving_direction=moving,
         primary_or_secondary=primary,
     )
+
+
+def _controller_track_id(frame: FrameDetections) -> int | None:
+    controller = _controlling_person(frame)
+    return controller.track_id if controller is not None else None
+
+
+def _possession_timeline(detections: RawDetections) -> list[dict]:
+    """Per-frame ball-controller identity for every frame that has a ball."""
+    timeline: list[dict] = []
+    for frame in detections.frames:
+        if not _balls(frame):
+            continue
+        timeline.append(
+            {"frame_index": frame.frame_index, "controller_track_id": _controller_track_id(frame)}
+        )
+    return timeline
+
+
+def _possession_changes(timeline: list[dict]) -> int:
+    """Count transitions between distinct, tracked controllers across the timeline."""
+    changes = 0
+    previous: int | None = None
+    seen_first = False
+    for entry in timeline:
+        controller = entry["controller_track_id"]
+        if controller is None:
+            continue
+        if seen_first and controller != previous:
+            changes += 1
+        previous = controller
+        seen_first = True
+    return changes
+
+
+def _dominant_controller(timeline: list[dict]) -> tuple[int | None, int]:
+    """The most frequent tracked controller and how many frames it controlled."""
+    counts: dict[int, int] = {}
+    for entry in timeline:
+        controller = entry["controller_track_id"]
+        if controller is not None:
+            counts[controller] = counts.get(controller, 0) + 1
+    if not counts:
+        return None, 0
+    best = max(counts, key=lambda tid: counts[tid])
+    return best, counts[best]
+
+
+def _tracking_confidence(
+    *,
+    frames_total: int,
+    frames_with_ball: int,
+    players_tracked: int,
+    ball_handler_track_id: int | None,
+    defender_present: bool,
+) -> float:
+    """A deterministic [0, 1] signal for how well the clip could be tracked.
+
+    Rewards ball coverage across frames, multiple tracked players, a stable
+    offensive identity, and a located defender. Used to calibrate (not decide)
+    final confidence — it never overrides the adjudicators.
+    """
+    ball_coverage = frames_with_ball / frames_total if frames_total else 0.0
+    score = 0.4 * ball_coverage
+    score += 0.3 if players_tracked >= 2 else (0.15 if players_tracked == 1 else 0.0)
+    score += 0.2 if ball_handler_track_id is not None else 0.0
+    score += 0.1 if defender_present else 0.0
+    return round(max(0.0, min(1.0, score)), 3)
+
+
+def summarize_tracked_evidence(detections: RawDetections | None) -> dict | None:
+    """Rich, tracking-grounded evidence for the adjudicator (additive; basketball).
+
+    Surfaces what the collapsed 3-field feature set drops: offensive/defender
+    identities, a per-frame possession timeline, possession changes, temporally
+    robust movement, coverage counts, and a tracking-confidence signal. Returns
+    None when there is nothing to ground on, so callers add no prompt section.
+    """
+    if detections is None or not any(frame.objects for frame in detections.frames):
+        return None
+
+    frames_total = len(detections.frames)
+    frames_with_ball = sum(1 for frame in detections.frames if _balls(frame))
+    tracks = track_players(detections)
+    players_tracked = len(tracks)
+
+    timeline = _possession_timeline(detections)
+    ball_handler_track_id, ball_handler_control_frames = _dominant_controller(timeline)
+    defender_track_id, defender_present = identify_primary_defender(detections)
+
+    handler_trajectory = tracks.get(ball_handler_track_id) if ball_handler_track_id is not None else None
+    defender_trajectory = tracks.get(defender_track_id) if defender_track_id is not None else None
+
+    return {
+        "frames_total": frames_total,
+        "frames_with_ball": frames_with_ball,
+        "players_tracked": players_tracked,
+        "possession_summary": possession_status(detections),
+        "possession_timeline": timeline,
+        "possession_changes": _possession_changes(timeline),
+        "ball_handler_track_id": ball_handler_track_id,
+        "ball_handler_control_frames": ball_handler_control_frames,
+        "ball_handler_movement": trajectory_movement(handler_trajectory) if handler_trajectory else None,
+        "defender_track_id": defender_track_id,
+        "defender_present": defender_present,
+        "defender_movement": trajectory_movement(defender_trajectory) if defender_trajectory else None,
+        "tracking_confidence": _tracking_confidence(
+            frames_total=frames_total,
+            frames_with_ball=frames_with_ball,
+            players_tracked=players_tracked,
+            ball_handler_track_id=ball_handler_track_id,
+            defender_present=defender_present,
+        ),
+    }
