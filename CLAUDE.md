@@ -94,6 +94,32 @@ There is no PDF in the repo. `backend/data/indices/basketball/rules.json` contai
 
 `backend/main.py` is an older mock entrypoint using `services/mock_analyzer.py`. It is not used in production. The Render start command targets `app.api.main:app`.
 
+### AI provider abstraction
+
+The four-agent pipeline talks to LLMs **only** through the provider interface in `backend/services/ai/`. The rest of the app never knows whether it is speaking to Anthropic, Gemini, or the mock.
+
+**Where providers live:**
+
+```
+backend/services/ai/
+  provider.py                  # AIProvider ABC + neutral message content (text/image parts)
+  factory.py                   # get_provider() — selects by AI_PROVIDER, raises on invalid
+  providers/
+    anthropic_provider.py      # Claude Messages API (HTTP)
+    gemini_provider.py         # Google GenAI SDK (google-genai, lazy-imported)
+    mock_provider.py           # demo-safe, no network
+```
+
+**The interface** (`AIProvider`): `send_messages(system_prompt, user_content, temperature, max_tokens) -> str`, `supports_vision()`, `provider_name()`, and an `is_mock` property.
+
+**How the pipeline interacts with providers:** `ai_analyzer.py` resolves the active provider once via `get_provider()` (from `AI_PROVIDER`). If `provider.is_mock`, it takes the canned demo path (`_mock_ai_result`, unchanged output). Otherwise the three real agents (`_perception_agent`, `_retrieval_agent`, `_adjudicator_agent`) send their turns through the single `_send_messages()` seam, which delegates to `provider.send_messages()`. Message content is provider-neutral: callers pass a string or a list of `text_part(...)` / `image_part(path)` parts, and each provider translates them into its own wire format. The raw text reply is parsed by the **shared** `_extract_json()` in `ai_analyzer.py` — parsing is never duplicated per provider.
+
+**Why provider-specific logic must never leak into `ai_analyzer.py`:** the analyzer owns the *pipeline* (agents, reconciliation, diagnostics), not vendor plumbing. Keeping HTTP/SDK/auth/model-name/image-encoding details inside the provider classes is what makes providers swappable by env var alone and keeps the pipeline untouched when a backend changes.
+
+**Environment configuration:** `AI_PROVIDER` selects the provider (`mock` | `anthropic` | `gemini`; default `mock`; invalid values raise a clear error). `anthropic` needs `ANTHROPIC_API_KEY` (model override: `AI_MODEL`, default `claude-sonnet-4-5`). `gemini` needs `GEMINI_API_KEY` and the `google-genai` package (model override: `GEMINI_MODEL`, default `gemini-2.5-flash`). Missing keys degrade to the mock fallback with the reason surfaced in diagnostics; an unsupported `AI_PROVIDER` value fails loudly.
+
+**Adding a future provider** (OpenAI, Azure, Grok, Ollama, …): (1) create one class implementing `AIProvider` under `providers/`, (2) register it in `factory._PROVIDERS`. The four-agent pipeline requires zero changes. Design principle for contributors: a provider only knows how to turn a system prompt + neutral content + temperature/max_tokens into a text reply — it must not import `ai_analyzer`, know about agents, or reshape JSON.
+
 ### Frontend (`frontend/`)
 
 Next.js 15 App Router. Six screens in `src/app/screens/` — `Home`, `Upload`, `Verdict`, `Feed`, `Leaderboard`, `RefProfile` — each has a thin page wrapper in `src/app/<route>/page.tsx`.
@@ -108,6 +134,6 @@ The only file that talks to the backend is `src/lib/api.ts`. It reads `NEXT_PUBL
 ## Key Constraints
 
 - Do not change `backend/app/models/schemas.py` without updating `frontend/src/lib/types.ts` to match.
-- The model strings `claude-sonnet-4-5` in `perception/agent.py` and `agents/adjudicator.py` are intentionally not updated to 4.6 yet — check before changing.
+- The Anthropic model default `claude-sonnet-4-5` lives in `backend/services/ai/providers/anthropic_provider.py` (`DEFAULT_MODEL`), overridable via `AI_MODEL`. It is intentionally not updated to 4.6 yet — check before changing. Provider-specific model names belong in the provider classes, never in `ai_analyzer.py`.
 - `retrieve_rules()` resolves `data/indices/{sport}/` relative to the process working directory. The process must start from `backend/`.
 - Render free tier sleeps after 15 min inactivity. Hit `/api/health` before a demo to warm up.

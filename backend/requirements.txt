@@ -9,6 +9,10 @@ certifi
 # DETECTOR=claude_vision. Install only when running YOLO-based detection.
 # ultralytics
 
+# Optional: Google Gemini provider (AI_PROVIDER=gemini).
+# Imported lazily; not required for mock or anthropic. Install to use Gemini.
+# google-genai
+
 # NBA game-metadata enrichment (basketball `game_context`).
 # Pure-Python but pulls in requests + pandas. Imported lazily and fully guarded:
 # the app still runs and returns verdicts if it is missing or rate-limited

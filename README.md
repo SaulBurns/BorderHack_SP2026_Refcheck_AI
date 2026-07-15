@@ -9,10 +9,15 @@ Current stack:
 - Analysis: ffmpeg frame extraction + four-agent Claude pipeline with mock fallback
 - Optional persistence: Supabase Postgres + Supabase Storage
 
-Supported modes:
+Supported providers (switching is a single env change — no code changes):
 
 - `AI_PROVIDER=mock` for local demos without paid keys
 - `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` for the real four-agent pipeline
+- `AI_PROVIDER=gemini` with `GEMINI_API_KEY` to run the same pipeline on Google Gemini
+
+Any other value fails loudly at request time instead of silently degrading. See
+[CLAUDE.md](CLAUDE.md#ai-provider-abstraction) for the provider architecture and
+how to add a new provider.
 
 The four agents are:
 
@@ -48,13 +53,24 @@ Then copy the backend env example:
 cp .env.example .env
 ```
 
-Keep `AI_PROVIDER=mock` for free local testing. To use the real four-agent pipeline, set:
+Keep `AI_PROVIDER=mock` for free local testing. To use the real four-agent pipeline,
+pick one provider — **switching providers only requires changing environment variables**:
 
 ```bash
+# Anthropic (Claude)
 AI_PROVIDER=anthropic
-AI_MODEL=claude-sonnet-4-5
+AI_MODEL=claude-sonnet-4-5        # optional; default: claude-sonnet-4-5
 ANTHROPIC_API_KEY=your_key
 ```
+
+```bash
+# Google Gemini (requires: pip install google-genai)
+AI_PROVIDER=gemini
+GEMINI_MODEL=gemini-2.5-flash     # optional; default: gemini-2.5-flash
+GEMINI_API_KEY=your_key
+```
+
+The four-agent pipeline is identical across providers — only the model backend changes.
 
 ### Frontend
 
@@ -182,8 +198,8 @@ On Render:
 1. Create a new Blueprint or Web Service from the GitHub repo.
 2. Use the backend service from `render.yaml`.
 3. Set `FRONTEND_ORIGIN` to your Vercel URL, for example `https://refcheck-ai.vercel.app`.
-4. Set `AI_PROVIDER` to `anthropic` or `mock`.
-5. Add `ANTHROPIC_API_KEY` when using `anthropic`.
+4. Set `AI_PROVIDER` to `mock`, `anthropic`, or `gemini`.
+5. Add `ANTHROPIC_API_KEY` (for `anthropic`) or `GEMINI_API_KEY` (for `gemini`).
 
 Use `mock` until the backend deploy is healthy, then switch to a paid provider.
 
