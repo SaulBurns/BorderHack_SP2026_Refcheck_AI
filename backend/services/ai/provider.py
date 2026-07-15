@@ -1,0 +1,90 @@
+"""AI provider abstraction (Sprint 1).
+
+The rest of the application talks to LLMs exclusively through the `AIProvider`
+interface and never learns whether it is speaking to Anthropic, Gemini, or the
+mock. Provider-specific plumbing (HTTP, SDKs, auth, image encoding, model names)
+lives entirely inside the concrete provider classes in `services/ai/providers/`.
+
+Message content is provider-neutral: a caller passes either a plain string (text
+prompt) or a list of neutral content parts, and each provider translates those
+parts into its own wire format inside `send_messages`.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import TypedDict, Union
+
+
+class TextPart(TypedDict):
+    type: str  # "text"
+    text: str
+
+
+class ImagePart(TypedDict):
+    type: str  # "image"
+    path: str
+
+
+ContentPart = Union[TextPart, ImagePart]
+# What agents pass to `send_messages`: a bare prompt or ordered multimodal parts.
+MessageContent = Union[str, list[ContentPart]]
+
+
+def text_part(text: str) -> TextPart:
+    return {"type": "text", "text": text}
+
+
+def image_part(path: str | Path) -> ImagePart:
+    return {"type": "image", "path": str(path)}
+
+
+def normalize_content(user_content: MessageContent) -> list[ContentPart]:
+    """Coerce the neutral content into an ordered list of parts.
+
+    A plain string becomes a single text part; a list is returned unchanged.
+    This is the one place the two accepted shapes are reconciled, so every
+    provider consumes the same normalized structure.
+    """
+    if isinstance(user_content, str):
+        return [text_part(user_content)]
+    return list(user_content)
+
+
+class AIProvider(ABC):
+    """Abstract LLM provider. Concrete providers own all vendor specifics."""
+
+    @abstractmethod
+    def send_messages(
+        self,
+        *,
+        system_prompt: str,
+        user_content: MessageContent,
+        temperature: float,
+        max_tokens: int = 1200,
+    ) -> str:
+        """Send one system+user turn and return the model's raw text reply.
+
+        `user_content` is provider-neutral (see `MessageContent`). The returned
+        string is passed to the shared JSON extraction in `ai_analyzer`, so
+        providers must not parse or reshape it.
+        """
+
+    @abstractmethod
+    def supports_vision(self) -> bool:
+        """Whether this provider can consume image parts."""
+
+    @abstractmethod
+    def provider_name(self) -> str:
+        """Stable identifier (e.g. "anthropic", "gemini", "mock")."""
+
+    @property
+    def is_mock(self) -> bool:
+        """True only for the mock demo provider.
+
+        The four-agent pipeline uses this to choose the canned demo path instead
+        of issuing real model calls. Real providers inherit the default (False)
+        and never need to know about the demo path.
+        """
+        return False
