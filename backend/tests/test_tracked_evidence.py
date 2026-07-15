@@ -142,7 +142,7 @@ def _capture_prompt(monkeypatch):
         captured["prompt"] = user_content
         return valid
 
-    monkeypatch.setattr(ai, "_call_anthropic_messages", fake_call)
+    monkeypatch.setattr(ai, "_send_messages", fake_call)
     return captured
 
 def test_adjudicator_includes_tracked_evidence_when_present(monkeypatch):

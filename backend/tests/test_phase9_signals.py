@@ -60,7 +60,7 @@ def test_adjudicator_includes_sport_details_when_present(monkeypatch):
         captured["prompt"] = user_content
         return _VALID_VERDICT_JSON
 
-    monkeypatch.setattr(ai, "_call_anthropic_messages", fake_call)
+    monkeypatch.setattr(ai, "_send_messages", fake_call)
     _adjudicator_agent(
         perception={"event_type": "possible_blocking_foul"},
         rules=[],
@@ -80,7 +80,7 @@ def test_adjudicator_omits_sport_details_when_none(monkeypatch):
         captured["prompt"] = user_content
         return _VALID_VERDICT_JSON
 
-    monkeypatch.setattr(ai, "_call_anthropic_messages", fake_call)
+    monkeypatch.setattr(ai, "_send_messages", fake_call)
     _adjudicator_agent(
         perception={"event_type": "possible_blocking_foul"},
         rules=[],

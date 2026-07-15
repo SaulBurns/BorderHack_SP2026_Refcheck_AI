@@ -1,10 +1,6 @@
-import base64
 import json
 import os
-import ssl
 import subprocess
-import urllib.error
-import urllib.request
 from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
@@ -12,23 +8,15 @@ from typing import Any
 
 from fastapi import UploadFile
 
+from services.ai import get_provider, image_part, text_part
 from services.detectors import RawDetections, get_detector
 from services.extractors import get_extractor
 from services.extractors.basketball_vision import summarize_tracked_evidence
 from services.mock_analyzer import analyze_clip as mock_analyze_clip
 from services.perception_schema import SCHEMA_VERSION
 
-try:
-    import certifi
-except ImportError:
-    certifi = None
-
 
 FRAME_DIR = Path(__file__).resolve().parents[1] / "uploads" / "frames"
-DEFAULT_MODEL_BY_PROVIDER = {
-    "anthropic": "claude-sonnet-4-5",
-    "openai": "gpt-4.1-mini",
-}
 
 _BASKETBALL_PERCEPTION_PROMPT = """
 You are a sports video analyst specializing in basketball officiating review.
@@ -450,43 +438,12 @@ def _extract_frames(video_path: str | None, clip_id: str, max_frames: int = 10) 
     return sorted(output_dir.glob("frame_*.jpg"))[:max_frames]
 
 
-def _image_blocks_for_anthropic(frame_paths: list[Path]) -> list[dict]:
-    blocks = []
-    for path in frame_paths:
-        data = base64.b64encode(path.read_bytes()).decode("utf-8")
-        blocks.append(
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": "image/jpeg",
-                    "data": data,
-                },
-            }
-        )
-    return blocks
-
-
-def _post_json(url: str, headers: dict[str, str], payload: dict) -> dict:
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    context = ssl.create_default_context(cafile=certifi.where()) if certifi else None
-
-    try:
-        with urllib.request.urlopen(request, timeout=90, context=context) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"AI provider HTTP {exc.code}: {body}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"AI provider request failed: {exc.reason}") from exc
-
-
 def _extract_json(text: str) -> dict:
+    """Shared JSON extraction for every provider's raw text reply.
+
+    Provider-agnostic on purpose: providers return plain text and this one parser
+    turns it into a dict, so parsing logic is never duplicated per provider.
+    """
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -497,47 +454,25 @@ def _extract_json(text: str) -> dict:
         return json.loads(text[start : end + 1])
 
 
-def _anthropic_text_from_response(response: dict) -> str:
-    return "".join(
-        block.get("text", "")
-        for block in response.get("content", [])
-        if block.get("type") == "text"
-    )
-
-
-def _call_anthropic_messages(
+def _send_messages(
     *,
     system_prompt: str,
-    user_content: str | list[dict],
+    user_content,
     temperature: float,
     max_tokens: int = 1200,
 ) -> str:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+    """Send one turn through the active AI provider and return its raw text.
 
-    model = os.getenv("AI_MODEL") or DEFAULT_MODEL_BY_PROVIDER["anthropic"]
-    content = user_content
-    if isinstance(user_content, str):
-        content = [{"type": "text", "text": user_content}]
-
-    payload = {
-        "model": model,
-        "system": system_prompt,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "messages": [{"role": "user", "content": content}],
-    }
-    response = _post_json(
-        "https://api.anthropic.com/v1/messages",
-        {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        payload,
+    The four-agent pipeline calls only this seam; which provider answers
+    (Anthropic, Gemini, mock) is resolved by the factory from AI_PROVIDER. No
+    provider-specific code lives here.
+    """
+    return get_provider().send_messages(
+        system_prompt=system_prompt,
+        user_content=user_content,
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
-    return _anthropic_text_from_response(response)
 
 
 def _perception_agent(frame_paths: list[Path], original_call: str, sport: str) -> dict:
@@ -547,18 +482,15 @@ def _perception_agent(frame_paths: list[Path], original_call: str, sport: str) -
         if original_call
         else "No original call was provided. Describe what you observe."
     )
-    user_blocks = _image_blocks_for_anthropic(frame_paths)
+    user_blocks = [image_part(path) for path in frame_paths]
     user_blocks.append(
-        {
-            "type": "text",
-            "text": (
-                f"Analyze these {len(frame_paths)} frames from a {sport} clip.\n\n"
-                f"{context}\n\nReturn your structured observation as JSON."
-            ),
-        }
+        text_part(
+            f"Analyze these {len(frame_paths)} frames from a {sport} clip.\n\n"
+            f"{context}\n\nReturn your structured observation as JSON."
+        )
     )
     return _extract_json(
-        _call_anthropic_messages(
+        _send_messages(
             system_prompt=_get_perception_prompt(sport),
             user_content=user_blocks,
             temperature=0,
@@ -584,7 +516,7 @@ Defender movement: {defender_status.get("moving_direction", "unclear")}
 
 Write the rulebook search query.
 """.strip()
-    return _call_anthropic_messages(
+    return _send_messages(
         system_prompt=_get_retrieval_prompt(sport),
         user_content=prompt,
         temperature=0,
@@ -728,7 +660,7 @@ RETRIEVED RULES:
 Issue your verdict as JSON.
 """.strip()
     return _extract_json(
-        _call_anthropic_messages(
+        _send_messages(
             system_prompt=f"{_get_adjudicator_prompt(sport)}\n\n{framing}",
             user_content=prompt,
             temperature=temperature,
@@ -858,9 +790,13 @@ def _run_four_agent_pipeline(
     referee_name: str,
     video_metadata: dict | None,
 ) -> dict:
-    provider = _clean(os.getenv("AI_PROVIDER"), "mock").lower()
+    # Provider selection is delegated to the factory: an invalid AI_PROVIDER
+    # raises a clear error here rather than silently degrading. The mock provider
+    # takes the canned demo path; real providers (anthropic, gemini) run the four
+    # agents through the shared `_send_messages` seam.
+    provider = get_provider()
 
-    if provider == "mock":
+    if provider.is_mock:
         return _mock_ai_result(
             file,
             sport,
@@ -870,18 +806,6 @@ def _run_four_agent_pipeline(
             referee_name,
             video_metadata,
             "AI_PROVIDER is set to mock.",
-        )
-
-    if provider != "anthropic":
-        return _mock_ai_result(
-            file,
-            sport,
-            level_of_play,
-            league,
-            original_call,
-            referee_name,
-            video_metadata,
-            "The four-agent pipeline currently supports AI_PROVIDER=anthropic.",
         )
 
     if not frame_paths:
