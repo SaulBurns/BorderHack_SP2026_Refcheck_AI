@@ -81,53 +81,52 @@ analyze_clip(file, sport, ..., video_metadata)      services/ai_analyzer.py
        disagree / weak perception → inconclusive, damped confidence
 ```
 
-### Sport plugins (`backend/sports/`, Sprint 9)
+### Sport plugins (`backend/sports/`) — self-contained sport architecture
 
-Sports are **plugins**. Each sport implements the `Sport` interface and is registered in a `SportRegistry`; the four-agent pipeline resolves one with `get_sport(sport)` and delegates all sport-specific behavior to it, so **`ai_analyzer.py` never checks `sport == "basketball"`**.
+Sports are **fully self-contained plugins**. Each sport implements the `Sport` interface and is registered in a `SportRegistry`; every generic seam resolves a plugin with `get_sport(sport)` and delegates, so **no shared file hardcodes a sport name** — `ai_analyzer.py`, the providers, detectors, evaluation, diagnostics, reconciliation, and frontend API are all sport-agnostic.
 
 ```
 sports/
-  base.py         # Sport ABC: perception/retrieval/adjudicator prompts,
-                  #   boost_rule_score, sport_details, tracked_evidence, metadata_provider
-  registry.py     # SportRegistry + get_sport() (GenericSport fallback for unknown sports)
-  generic.py      # GenericSport — Claude-only, no tracking/game-context (hockey/lacrosse today)
-  basketball/     # first full implementation
-    sport.py      #   BasketballSport wiring
-    rules.py      #   basketball rule-retrieval boosts (moved out of services/analysis/retrieval.py)
-  soccer/         # second full implementation (Sprint 10)
-    sport.py         # SoccerSport wiring
-    prompts.py       # soccer perception/retrieval/adjudicator prompts (real, not stubs)
-    rules.py         # soccer rule-retrieval boosts (corpus lives in rules/soccer_rules.py)
-    tracking.py      # soccer tracked-evidence layer (possession, ball movement, attacking direction)
-    extractor.py     # SoccerDetailExtractor -> SoccerDetails (registered in the shared extractor registry)
-    game_context.py  # metadata-provider seam (returns None — no soccer match DB yet)
-  hockey/         # third full implementation (Sprint 11) — same six-file layout as soccer
-    sport.py         # HockeySport wiring
-    prompts.py       # hockey perception/retrieval/adjudicator prompts (real, not stubs)
-    rules.py         # hockey rule-retrieval boosts (corpus lives in rules/hockey_rules.py)
-    tracking.py      # hockey tracked-evidence layer (puck possession, rush direction)
-    extractor.py     # HockeyDetailExtractor -> HockeyDetails (registered in the shared extractor registry)
-    game_context.py  # metadata-provider seam (returns None — no hockey game DB yet)
-  lacrosse/       # fourth full implementation (Sprint 12) — same six-file layout
-    sport.py         # LacrosseSport wiring
-    prompts.py       # lacrosse perception/retrieval/adjudicator prompts (real, not stubs)
-    rules.py         # lacrosse rule-retrieval boosts (corpus lives in rules/lacrosse_rules.py)
-    tracking.py      # lacrosse tracked-evidence layer (possession, ball movement)
-    extractor.py     # LacrosseDetailExtractor -> LacrosseDetails (registered in the shared extractor registry)
-    game_context.py  # metadata-provider seam (returns None — no lacrosse game DB yet)
+  base.py         # Sport ABC — the full contract each plugin implements:
+                  #   display_name, perception/retrieval/adjudicator prompts,
+                  #   rule_records, boost_rule_score, detail_extractor, details_model,
+                  #   sport_details, tracked_evidence, metadata_provider
+  registry.py     # SportRegistry + get_sport() (GenericSport fallback for unregistered sports)
+  generic.py      # GenericSport — empty/stub defaults for any UNREGISTERED sport string
+  basketball/  soccer/  hockey/  lacrosse/     # four full implementations, identical layout:
+    sport.py         # <Sport>Sport wiring (implements the whole Sport interface)
+    prompts.py       # perception/retrieval/adjudicator prompt strings (incl. basketball)
+    rules.py         # rule-retrieval boosts (corpus in rules/<sport>_rules.py)
+    tracking.py      # tracked-evidence layer (soccer/hockey/lacrosse; basketball uses basketball_vision)
+    extractor.py     # <Sport>DetailExtractor -> <Sport>Details (basketball's is services/extractors/basketball.py)
+    game_context.py  # metadata-provider seam (basketball -> NBA provider; others None)
 ```
 
-- **What the plugin owns:** prompt selection, rule-retrieval boosts, sport-details extraction, tracking evidence, and the game-context metadata provider. Basketball delegates its prompts/extractor to the shared catalog/registry; **soccer**, **hockey**, and **lacrosse** own their prompt strings in `sports/<sport>/prompts.py` (imported into the shared catalog so the pipeline's `_get_*_prompt(sport)` selectors resolve them) and their detail extractor in `sports/<sport>/extractor.py` (registered in `services/extractors/registry.py`). Either style satisfies the `Sport` interface.
-- **How the generic services delegate to it:** `services/analysis/retrieval.py` calls `get_sport(sport).boost_rule_score(...)` (was an inline `if sport == "basketball"` boost table); `services/metadata/registry.py:get_metadata_provider(sport)` returns `get_sport(sport).metadata_provider()`; `ai_analyzer._run_four_agent_pipeline` uses `get_sport(sport).sport_details(...)` and `.tracked_evidence(...)`. These generic functions stay as the stable, monkeypatchable seams; only the *decision* moved into the plugin.
-- **Behavior is identical for unregistered sports.** Every shipped sport (basketball, soccer, hockey, lacrosse) has a full plugin; a `GenericSport` (name-carrying) is returned only for an *unregistered* sport string, reproducing the pre-plugin Claude-only path. Import cycles are avoided by lazy `from sports import get_sport` inside the delegating service functions, and by keeping all `services` imports lazy (inside methods) in every `sports/<sport>/sport.py`.
-- **Supported events:** **soccer** (Sprint 10) — foul, offside, handball, penalty, red card, yellow card, goal; **hockey** (Sprint 11) — icing, offside, tripping, cross-checking, boarding, slashing, hooking; **lacrosse** (Sprint 12) — illegal body check, slash, push, crease violation, offside, loose-ball push. Each is a rule record in `rules/<sport>_rules.py` (keys become uppercase `rule_id`s) with a tuned retrieval boost in `sports/<sport>/rules.py`.
-- **Adding a sport:** create a `Sport` subclass package under `sports/<sport>/`, add its rule corpus to `rules/<sport>_rules.py` + `rules/sport_config.py`, and register it in `sports/registry.py`. The pipeline, providers, detectors, and evaluation need zero changes. See `sports/soccer/`, `sports/hockey/`, and `sports/lacrosse/` as reference implementations.
+- **What the plugin owns (the whole `Sport` contract):** `display_name`, the three prompts, `rule_records()` (the corpus), `boost_rule_score()`, `detail_extractor()`, `details_model()` (the `SportDetails` subclass), `sport_details()`, `tracked_evidence()`, and `metadata_provider()`. Basketball is symmetric with the others (its prompts live in `sports/basketball/prompts.py`).
+- **How the generic seams delegate (no hardcoded per-sport tables):** every shared lookup resolves `get_sport(sport)` and calls the matching method —
+  - `rules/sport_config.py:get_rules_for_sport()` → `.rule_records()`; `normalize_sport()`/`supported_sports()` → `registry.available()`
+  - `services/analysis/prompts.py:_get_*_prompt()` → `.perception_prompt()`/`.retrieval_prompt()`/`.adjudicator_prompt()`
+  - `services/analysis/retrieval.py` → `.boost_rule_score()`
+  - `services/extractors/registry.py:get_extractor()` → `.detail_extractor()`
+  - `services/perception_schema.py:get_sport_details_model()` → `.details_model()`
+  - `services/metadata/registry.py:get_metadata_provider()` → `.metadata_provider()`
+  - `ai_analyzer._run_four_agent_pipeline` → `.sport_details()` and `.tracked_evidence()`
+
+  These generic functions stay as the stable, monkeypatchable seams; only the *decision* lives in the plugin. Import cycles are avoided by lazy `from sports import get_sport` inside the delegating functions, and by keeping all `services`/`rules` imports lazy (inside methods) in every `sports/<sport>/sport.py`.
+- **Unregistered sports** resolve to a name-carrying `GenericSport`: empty rules, stub prompts, `EmptyDetailExtractor`, `EmptySportDetails`, no tracking, no game context — the graceful Claude-only fallback, never a crash.
+- **Supported events:** **soccer** — foul, offside, handball, penalty, red card, yellow card, goal; **hockey** — icing, offside, tripping, cross-checking, boarding, slashing, hooking; **lacrosse** — illegal body check, slash, push, crease violation, offside, loose-ball push. Each is a rule record in `rules/<sport>_rules.py` (keys become uppercase `rule_id`s) returned by the plugin's `rule_records()`, with a tuned boost in `sports/<sport>/rules.py`.
+- **Adding a sport = exactly three steps, no other backend file changes:**
+  1. Create `sports/<sport>/` implementing the `Sport` interface (prompts, `rule_records`, boosts, `detail_extractor`, `details_model`, tracking, game context).
+  2. (Its rule corpus + `SportDetails` subclass can live inside the package — a new sport touches neither `rules/sport_config.py` nor `services/perception_schema.py`.)
+  3. `registry.register(<Sport>Sport())` in `sports/registry.py`.
+
+  The pipeline, providers, detectors, evaluation, diagnostics, reconciliation, and frontend API need zero changes. This is proven by `tests/test_sport_self_contained.py`, which registers a brand-new sport entirely inline and asserts every seam routes through it.
 
 ### The `services/analysis/` package (Sprint 7)
 
 `ai_analyzer.py` was ~1500 lines; its concerns were split into a package, leaving `ai_analyzer` as the orchestrator (~700 lines). Every name is re-imported into `ai_analyzer`, so `from services.ai_analyzer import ...` and `monkeypatch.setattr(ai, ...)` seams are unchanged.
 
-- `prompts.py` — sport-keyed perception/retrieval/adjudicator prompts + framings.
+- `prompts.py` — shared reasoning framings, generic stub-prompt builders, and the `_get_*_prompt(sport)` selectors that now **delegate to `get_sport(sport).*_prompt()`** (each sport's prompt strings live in `sports/<sport>/prompts.py`).
 - `frames.py` — `FRAME_DIR`, ffprobe/ffmpeg frame extraction + on-disk cache.
 - `retrieval.py` — keyword rule-record loading + ranking (both `@lru_cache`d).
 - `mock_result.py` — the canned, network-free demo result.

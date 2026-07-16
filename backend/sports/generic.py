@@ -20,27 +20,40 @@ class GenericSport(Sport):
 
     def __init__(self, name: str) -> None:
         self.name = (name or "").lower().strip()
+        self.display_name = self.name.replace("_", " ").title() or "Unknown"
 
+    # Prompts call the stub builders directly (NOT `_get_*_prompt`, which now
+    # delegates back to this plugin — that would recurse).
     def perception_prompt(self) -> str:
-        from services.analysis.prompts import _get_perception_prompt
-        return _get_perception_prompt(self.name)
+        from services.analysis.prompts import _make_stub_perception_prompt
+        return _make_stub_perception_prompt(self.name)
 
     def retrieval_prompt(self) -> str:
-        from services.analysis.prompts import _get_retrieval_prompt
-        return _get_retrieval_prompt(self.name)
+        from services.analysis.prompts import _make_stub_retrieval_prompt
+        return _make_stub_retrieval_prompt(self.name)
 
     def adjudicator_prompt(self) -> str:
-        from services.analysis.prompts import _get_adjudicator_prompt
-        return _get_adjudicator_prompt(self.name)
+        from services.analysis.prompts import _make_stub_adjudicator_prompt
+        return _make_stub_adjudicator_prompt(self.name)
+
+    def rule_records(self) -> dict:
+        return {}
 
     def boost_rule_score(self, rule_id: str, haystack: str) -> int:
         return 0
 
+    def detail_extractor(self) -> Any:
+        from services.extractors.placeholders import EmptyDetailExtractor
+        return EmptyDetailExtractor()
+
+    def details_model(self) -> Any:
+        from services.perception_schema import EmptySportDetails
+        return EmptySportDetails
+
     def sport_details(self, detections: Any, perception: dict) -> dict | None:
         if detections is None:
             return None
-        from services.extractors import get_extractor
-        return get_extractor(self.name).extract(detections, perception).model_dump()
+        return self.detail_extractor().extract(detections, perception).model_dump()
 
     def tracked_evidence(self, detections: Any) -> dict | None:
         return None

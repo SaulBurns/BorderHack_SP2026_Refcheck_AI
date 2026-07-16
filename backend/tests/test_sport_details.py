@@ -6,9 +6,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
 
-from rules.sport_config import SPORTS
+from rules.sport_config import supported_sports
+from sports import get_sport
 from services.perception_schema import (
-    SPORT_DETAIL_MODELS,
     BasketballDetails,
     CourtGeometry,
     DefenderStatus,
@@ -22,18 +22,16 @@ from services.perception_schema import (
 
 
 # ---------------------------------------------------------------------------
-# Registry shape
+# Registry-driven detail models (no hardcoded SPORT_DETAIL_MODELS table)
 # ---------------------------------------------------------------------------
 
-def test_registry_has_exactly_four_sports():
-    assert set(SPORT_DETAIL_MODELS.keys()) == {"basketball", "hockey", "soccer", "lacrosse"}
-
-def test_registry_keys_match_sport_config():
-    assert set(SPORT_DETAIL_MODELS.keys()) == set(SPORTS.keys())
+def test_each_registered_sport_resolves_a_details_model():
+    for name in supported_sports():
+        assert get_sport_details_model(name) is get_sport(name).details_model()
 
 def test_all_registered_models_subclass_sport_details():
-    for model in SPORT_DETAIL_MODELS.values():
-        assert issubclass(model, SportDetails)
+    for name in supported_sports():
+        assert issubclass(get_sport(name).details_model(), SportDetails)
 
 
 # ---------------------------------------------------------------------------

@@ -1,35 +1,18 @@
-"""Sport detail extractor registry.
+"""Sport detail extractor resolution — now registry-driven.
 
-Mirrors the detector registry. Unknown sports fall back to `EmptyDetailExtractor`
-(never raises) — consistent with `perception_schema.get_sport_details_model`,
-since sports are data-driven and normalized upstream.
+`get_extractor(sport)` delegates to the Sport plugin (`get_sport(sport).
+detail_extractor()`), so the extractor for each sport is owned by its package and
+adding a sport never edits this file. Unregistered sports resolve through
+`GenericSport`, which returns `EmptyDetailExtractor` (never raises), preserving the
+previous fallback behavior.
 """
 
 from __future__ import annotations
 
 from services.extractors.base import SportDetailExtractor
-from services.extractors.basketball import BasketballDetailExtractor
-from services.extractors.placeholders import EmptyDetailExtractor
-from services.registry import Registry
-from sports.hockey.extractor import HockeyDetailExtractor
-from sports.lacrosse.extractor import LacrosseDetailExtractor
-from sports.soccer.extractor import SoccerDetailExtractor
-
-
-class ExtractorRegistry(Registry[SportDetailExtractor]):
-    """Maps sport keys to detail-extractor classes (unknown -> EmptyDetailExtractor)."""
-
-    def __init__(self) -> None:
-        super().__init__("extractor", fallback=EmptyDetailExtractor)
-
-
-registry = ExtractorRegistry()
-registry.register("basketball", BasketballDetailExtractor)
-registry.register("hockey", HockeyDetailExtractor)
-registry.register("soccer", SoccerDetailExtractor)
-registry.register("lacrosse", LacrosseDetailExtractor)
 
 
 def get_extractor(sport: str | None = None) -> SportDetailExtractor:
     """Resolve a sport detail extractor (unknown sports -> EmptyDetailExtractor)."""
-    return registry.create(sport)
+    from sports import get_sport
+    return get_sport(sport).detail_extractor()
