@@ -1,0 +1,12 @@
+[
+  { "clip_id": "nba_charge_01", "sport": "basketball", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/nba_charge_01.mp4", "original_call": "Charge on the offensive player (player-control foul) at the rim", "notes": "charge" },
+  { "clip_id": "nba_blocking_foul_02", "sport": "basketball", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/nba_blocking_foul_02.mp4", "original_call": "Blocking foul on the defender at the rim", "notes": "blocking_foul" },
+  { "clip_id": "nba_shooting_foul_03", "sport": "basketball", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/nba_shooting_foul_03.mp4", "original_call": "Shooting foul on the jump shooter", "notes": "shooting_foul" },
+  { "clip_id": "nba_travel_04", "sport": "basketball", "ground_truth_verdict": "bad_call", "video_path": "demo_clips/nba_travel_04.mp4", "original_call": "No travel called on the euro-step drive", "notes": "travel" },
+  { "clip_id": "nba_double_dribble_05", "sport": "basketball", "ground_truth_verdict": "bad_call", "video_path": "demo_clips/nba_double_dribble_05.mp4", "original_call": "No double dribble called after the hesitation move", "notes": "double_dribble" },
+  { "clip_id": "nba_out_of_bounds_06", "sport": "basketball", "ground_truth_verdict": "inconclusive", "video_path": "demo_clips/nba_out_of_bounds_06.mp4", "original_call": "Ball awarded to the home team out of bounds", "notes": "out_of_bounds" },
+  { "clip_id": "nba_goaltending_07", "sport": "basketball", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/nba_goaltending_07.mp4", "original_call": "Goaltending called on the chase-down block", "notes": "goaltending" },
+  { "clip_id": "nba_illegal_screen_08", "sport": "basketball", "ground_truth_verdict": "bad_call", "video_path": "demo_clips/nba_illegal_screen_08.mp4", "original_call": "No call on the screener sliding into the on-ball defender", "notes": "illegal_screen" },
+  { "clip_id": "nba_verticality_09", "sport": "basketball", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/nba_verticality_09.mp4", "original_call": "No foul — defender contested straight up (verticality)", "notes": "verticality" },
+  { "clip_id": "nba_loose_ball_foul_10", "sport": "basketball", "ground_truth_verdict": "inconclusive", "video_path": "demo_clips/nba_loose_ball_foul_10.mp4", "original_call": "Loose-ball foul on the rebound battle", "notes": "loose_ball_foul" }
+]

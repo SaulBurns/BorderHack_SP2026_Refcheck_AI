@@ -25,6 +25,9 @@ from evaluation.runner import (
     evaluate_predictions,
     load_labeled_clips,
 )
+from evaluation.latency import LatencySummary, summarize_latencies
+from evaluation.benchmark import BenchmarkReport, BenchmarkResult, run_benchmark
+from evaluation.report import render_html, render_markdown
 
 __all__ = [
     "VERDICTS",
@@ -39,4 +42,12 @@ __all__ = [
     "evaluate",
     "evaluate_predictions",
     "load_labeled_clips",
+    # Sprint 5 — benchmarking, latency, provider comparison, reports.
+    "LatencySummary",
+    "summarize_latencies",
+    "BenchmarkReport",
+    "BenchmarkResult",
+    "run_benchmark",
+    "render_markdown",
+    "render_html",
 ]

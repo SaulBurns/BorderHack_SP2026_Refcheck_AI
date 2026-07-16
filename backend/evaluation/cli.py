@@ -19,13 +19,14 @@ import argparse
 import json
 import os
 from pathlib import Path
+from time import perf_counter
 from types import SimpleNamespace
 from typing import Callable
 
-from evaluation.models import Prediction, prediction_from_response
+from evaluation.models import LabeledClip, Prediction, prediction_from_response
 from evaluation.runner import EvaluationReport, evaluate_predictions, load_labeled_clips
 
-PROVIDERS = ("anthropic", "mock")
+PROVIDERS = ("anthropic", "gemini", "mock")
 DETECTORS = ("claude_vision", "hybrid", "yolov8")
 
 # analyze_clip(file, sport, ..., video_metadata) -> response dict
@@ -70,6 +71,50 @@ def _restore_env(key: str, previous: str | None) -> None:
         os.environ[key] = previous
 
 
+def _resolve_analyze_fn(analyze_fn: AnalyzeFn | None) -> AnalyzeFn:
+    if analyze_fn is not None:
+        return analyze_fn
+    from services.ai_analyzer import analyze_clip  # lazy: avoid heavy import for --help
+
+    return analyze_clip
+
+
+def collect_predictions(
+    labeled: list[LabeledClip],
+    run_params_by_id: dict[str, dict],
+    provider: str,
+    detector: str,
+    analyze_fn: AnalyzeFn,
+) -> tuple[list[Prediction], list[float]]:
+    """Drive the pipeline for one provider/detector over the labeled clips.
+
+    Sets AI_PROVIDER/DETECTOR for the run and restores them afterward. Returns the
+    predictions plus per-clip latencies in milliseconds (used by the benchmark).
+    """
+    prev_provider = os.environ.get("AI_PROVIDER")
+    prev_detector = os.environ.get("DETECTOR")
+    os.environ["AI_PROVIDER"] = provider
+    os.environ["DETECTOR"] = detector
+    predictions: list[Prediction] = []
+    latencies_ms: list[float] = []
+    try:
+        for clip in labeled:
+            started = perf_counter()
+            prediction = _predict_clip(clip, run_params_by_id.get(clip.clip_id, {}), analyze_fn)
+            latencies_ms.append((perf_counter() - started) * 1000)
+            predictions.append(prediction)
+    finally:
+        _restore_env("AI_PROVIDER", prev_provider)
+        _restore_env("DETECTOR", prev_detector)
+    return predictions, latencies_ms
+
+
+def _load_dataset(dataset_path: str | Path) -> tuple[list[LabeledClip], dict[str, dict]]:
+    labeled = load_labeled_clips(dataset_path)
+    rows = json.loads(Path(dataset_path).read_text())
+    return labeled, {str(row["clip_id"]): row for row in rows}
+
+
 def run_evaluation(
     dataset_path: str | Path,
     provider: str = "mock",
@@ -82,26 +127,9 @@ def run_evaluation(
     if detector not in DETECTORS:
         raise ValueError(f"Unknown detector {detector!r}; expected one of {DETECTORS}.")
 
-    if analyze_fn is None:
-        from services.ai_analyzer import analyze_clip as analyze_fn  # lazy: avoid heavy import for --help
-
-    labeled = load_labeled_clips(dataset_path)
-    rows = json.loads(Path(dataset_path).read_text())
-    run_params_by_id = {str(row["clip_id"]): row for row in rows}
-
-    prev_provider = os.environ.get("AI_PROVIDER")
-    prev_detector = os.environ.get("DETECTOR")
-    os.environ["AI_PROVIDER"] = provider
-    os.environ["DETECTOR"] = detector
-    try:
-        predictions = [
-            _predict_clip(clip, run_params_by_id.get(clip.clip_id, {}), analyze_fn)
-            for clip in labeled
-        ]
-    finally:
-        _restore_env("AI_PROVIDER", prev_provider)
-        _restore_env("DETECTOR", prev_detector)
-
+    analyze_fn = _resolve_analyze_fn(analyze_fn)
+    labeled, run_params_by_id = _load_dataset(dataset_path)
+    predictions, _ = collect_predictions(labeled, run_params_by_id, provider, detector, analyze_fn)
     return evaluate_predictions(labeled, predictions)
 
 
@@ -111,28 +139,60 @@ def build_parser() -> argparse.ArgumentParser:
         description="Benchmark RefCheck AI verdicts against a labeled clip dataset.",
     )
     parser.add_argument("--dataset", required=True, help="Path to the labeled dataset JSON.")
-    parser.add_argument("--output", required=True, help="Path to write the EvaluationReport JSON.")
-    parser.add_argument("--provider", default="mock", choices=PROVIDERS, help="AI provider.")
+    parser.add_argument("--output", required=True, help="Path to write the report JSON.")
+    parser.add_argument("--provider", default="mock", choices=PROVIDERS, help="Single AI provider.")
+    parser.add_argument(
+        "--providers",
+        default=None,
+        help="Comma-separated providers for a comparison benchmark, e.g. mock,anthropic,gemini.",
+    )
     parser.add_argument(
         "--detector", default="claude_vision", choices=DETECTORS, help="Perception detector."
     )
+    parser.add_argument("--md", default=None, help="Optional path to write a Markdown report.")
+    parser.add_argument("--html", default=None, help="Optional path to write an HTML report.")
     return parser
+
+
+def _write_file(path: str, content: str) -> None:
+    out = Path(path)
+    if out.parent != Path(""):
+        out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(content)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    report = run_evaluation(args.dataset, provider=args.provider, detector=args.detector)
+    # Lazy import to avoid the benchmark<->cli cycle and keep --help cheap.
+    from evaluation.benchmark import run_benchmark
+    from evaluation.report import render_html, render_markdown
 
-    output = Path(args.output)
-    if output.parent != Path(""):
-        output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(report.to_dict(), indent=2))
-
-    print(
-        f"Evaluated {report.count} clips | accuracy={report.accuracy:.3f} "
-        f"| cohens_kappa={report.cohens_kappa:.3f}"
+    comparison_mode = bool(args.providers)
+    providers = (
+        [p.strip() for p in args.providers.split(",") if p.strip()]
+        if comparison_mode
+        else [args.provider]
     )
-    print(f"Report written to {output}")
+
+    benchmark = run_benchmark(args.dataset, providers, detector=args.detector)
+
+    # JSON: the full BenchmarkReport for a comparison; the bare EvaluationReport for
+    # a single provider (backward compatible with the Phase 9 report schema).
+    payload = benchmark.to_dict() if comparison_mode else benchmark.results[0].evaluation.to_dict()
+    _write_file(args.output, json.dumps(payload, indent=2))
+    if args.md:
+        _write_file(args.md, render_markdown(benchmark))
+    if args.html:
+        _write_file(args.html, render_html(benchmark))
+
+    print(f"Benchmarked {len(providers)} provider(s) over {benchmark.clip_count} clips:")
+    for result in benchmark.results:
+        ev = result.evaluation
+        print(
+            f"  {result.provider:>10} | acc={ev.accuracy:.3f} macroF1={ev.macro.get('f1', 0.0):.3f} "
+            f"kappa={ev.cohens_kappa:.3f} ece={ev.ece:.3f} mean_ms={result.latency.mean_ms:.1f}"
+        )
+    print(f"Report written to {args.output}")
     return 0
 
 
