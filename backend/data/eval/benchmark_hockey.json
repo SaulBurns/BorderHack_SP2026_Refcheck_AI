@@ -1,0 +1,9 @@
+[
+  { "clip_id": "hockey_icing_01", "sport": "hockey", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/hockey_icing_01.mp4", "original_call": "Icing waved off — defender could have played the puck", "notes": "icing" },
+  { "clip_id": "hockey_offside_02", "sport": "hockey", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/hockey_offside_02.mp4", "original_call": "Goal disallowed — attacker offside at the blue line", "notes": "offside" },
+  { "clip_id": "hockey_tripping_03", "sport": "hockey", "ground_truth_verdict": "bad_call", "video_path": "demo_clips/hockey_tripping_03.mp4", "original_call": "Tripping minor on the back-checking defender", "notes": "tripping" },
+  { "clip_id": "hockey_cross_checking_04", "sport": "hockey", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/hockey_cross_checking_04.mp4", "original_call": "Cross-checking minor in front of the net", "notes": "cross_checking" },
+  { "clip_id": "hockey_boarding_05", "sport": "hockey", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/hockey_boarding_05.mp4", "original_call": "Boarding major and game misconduct", "notes": "boarding" },
+  { "clip_id": "hockey_slashing_06", "sport": "hockey", "ground_truth_verdict": "bad_call", "video_path": "demo_clips/hockey_slashing_06.mp4", "original_call": "No call on the stick contact to the hands", "notes": "slashing" },
+  { "clip_id": "hockey_hooking_07", "sport": "hockey", "ground_truth_verdict": "inconclusive", "video_path": "demo_clips/hockey_hooking_07.mp4", "original_call": "Hooking minor on the breakaway", "notes": "hooking" }
+]

@@ -1,7 +1,7 @@
 """Generic sport plugin — the fallback for sports without a full implementation.
 
-Reproduces the pre-plugin behavior for any unconfigured sport (hockey, soccer,
-lacrosse, or anything else): Claude-only perception via the shared prompt
+Reproduces the pre-plugin behavior for any unconfigured sport (lacrosse today, or
+anything else): Claude-only perception via the shared prompt
 catalog's stub prompts, no rule boosts, no tracking evidence, and no game
 context. The placeholder extractor still yields a valid (empty) sport-details
 block, so the response shape is unchanged.
