@@ -6,18 +6,15 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-
-def _clean(value: str | None, fallback: str = "") -> str:
-    if value is None:
-        return fallback
-    return value.strip() or fallback
+from services import config
+from services.text_utils import clean as _clean
 
 
 def _config() -> dict[str, str] | None:
-    url = _clean(os.getenv("SUPABASE_URL")).rstrip("/")
-    key = _clean(os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
-    bucket = _clean(os.getenv("SUPABASE_CLIPS_BUCKET"), "clips")
-    table = _clean(os.getenv("SUPABASE_VERDICTS_TABLE"), "verdicts")
+    url = _clean(os.getenv(config.SUPABASE_URL_ENV)).rstrip("/")
+    key = _clean(os.getenv(config.SUPABASE_SERVICE_ROLE_KEY_ENV))
+    bucket = _clean(os.getenv(config.SUPABASE_CLIPS_BUCKET_ENV), config.DEFAULT_SUPABASE_BUCKET)
+    table = _clean(os.getenv(config.SUPABASE_VERDICTS_TABLE_ENV), config.DEFAULT_SUPABASE_TABLE)
 
     if not url or not key:
         return None

@@ -2,16 +2,15 @@
 
 Phase 0 + Phase 1 of docs/superpowers/plans/2026-06-12-sport-agnostic-perception.md.
 
-This module is INTENTIONALLY standalone: nothing in the runtime pipeline imports
-it yet. It formalizes the perception contract as Pydantic v2 models so later
-phases can migrate `ai_analyzer.py` onto it without changing behavior now.
+Status: partially wired into the runtime. The `SportDetails` models and
+`SCHEMA_VERSION` ARE used by the live pipeline (extractors + `ai_analyzer`). The
+sport-neutral `PerceptionCore` and its component models remain a reserved,
+not-yet-wired contract: the pipeline still passes perception as a plain dict, and
+migrating it onto `PerceptionCore` is deferred (see the typing note in
+`ai_analyzer`). Kept here so that migration is additive when it happens.
 
-- Phase 0: the sport-neutral common core (`PerceptionCore` and its parts).
-- Phase 1: the per-sport `SportDetails` extension models + registry.
-
-`PerceptionCore` deliberately does NOT embed `sport_details` yet — composing the
-two is a Phase 2 wiring concern. `RawDetections`/`detections` (YOLO) is deferred
-to Phase 5.
+- `PerceptionCore` (+ parts): sport-neutral common core. Reserved, not yet wired.
+- `SportDetails` (+ per-sport models & registry): live, used by the extractors.
 """
 
 from __future__ import annotations

@@ -1,10 +1,8 @@
 import copy
 import json
 import os
-import subprocess
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
@@ -12,16 +10,33 @@ from typing import Any
 
 from fastapi import UploadFile
 
+from services import config
 from services.ai import get_provider, image_part, text_part
-from services.ai.provider import AIProvider
+from services.ai.provider import AIProvider, MessageContent
+from services.analysis.contracts import AgentResult, RuleRecord
+from services.analysis.diagnostics import _diagnostics_payload
+from services.analysis.frames import FRAME_DIR, _extract_frames
+from services.analysis.mock_result import _mock_ai_result
+from services.analysis.prompts import (
+    CONSERVATIVE_FRAMING,
+    SKEPTICAL_FRAMING,
+    _get_adjudicator_prompt,
+    _get_perception_prompt,
+    _get_retrieval_prompt,
+)
+from services.analysis.retrieval import _retrieve_rules, _rule_records, _rules_text
 from services.detectors import RawDetections, get_detector
 from services.extractors import get_extractor
 from services.extractors.basketball_vision import summarize_tracked_evidence
-from services.mock_analyzer import analyze_clip as mock_analyze_clip
 from services.perception_schema import SCHEMA_VERSION
+from services.text_utils import clean as _clean
+from services.verdicts import normalize_verdict as _frontend_verdict
 
-
-FRAME_DIR = Path(__file__).resolve().parents[1] / "uploads" / "frames"
+# `_extract_frames`, `_retrieve_rules`, `_rule_records`, `_mock_ai_result`,
+# `_diagnostics_payload`, and the prompt helpers are imported (not defined) here
+# so the orchestration functions below call them by bare name — which keeps every
+# `from services.ai_analyzer import ...` path and `monkeypatch.setattr(ai, ...)`
+# seam working exactly as before the Sprint 7 split.
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +55,7 @@ _PROVIDER_CACHE: dict[str, AIProvider] = {}
 
 
 def _provider_key() -> str:
-    return (os.getenv("AI_PROVIDER") or "mock").strip().lower()
+    return config.resolved_provider()
 
 
 def _active_provider() -> AIProvider:
@@ -74,7 +89,7 @@ _RESULT_CACHE_MAX = 128
 
 
 def _analysis_cache_enabled() -> bool:
-    return os.getenv("ANALYSIS_CACHE", "").strip().lower() in {"1", "true", "yes", "on"}
+    return config.env_flag(config.ANALYSIS_CACHE_ENV)
 
 
 def _analysis_cache_key(
@@ -86,7 +101,7 @@ def _analysis_cache_key(
     referee: str,
 ) -> str:
     raw = "|".join(
-        [clip_id, sport, level, league, original_call, referee, _provider_key(), os.getenv("AI_MODEL", "")]
+        [clip_id, sport, level, league, original_call, referee, _provider_key(), os.getenv(config.AI_MODEL_ENV, "")]
     )
     return sha256(raw.encode("utf-8")).hexdigest()
 
@@ -111,345 +126,11 @@ def _reset_result_cache() -> None:
     """Clear the analysis result cache (used by tests)."""
     _RESULT_CACHE.clear()
 
-_BASKETBALL_PERCEPTION_PROMPT = """
-You are a sports video analyst specializing in basketball officiating review.
-
-You will receive a sequence of evenly-spaced frames from a short basketball clip. Your job is to describe what you observe in structured form. You are NOT issuing a verdict. A separate agent will rule on the call. Your role is to be the most accurate possible eyes for the system.
-
-OBSERVATION GUIDELINES:
-
-Players: Identify offensive and defensive players involved in the key moment. Describe their jersey color, spatial position on the court, and body state at the moment of contact or interest. Body state is critical: stationary, moving laterally, jumping, descending, falling, airborne, planted, sliding.
-
-COURT GEOMETRY AWARENESS:
-When describing positions, classify the key players by court zone:
-- restricted_area: the painted half-circle directly under the basket
-- paint_lane: the larger painted rectangle
-- perimeter: outside the paint, inside the three-point line
-- beyond_arc: outside the three-point line
-- backcourt_or_unclear: if the court position cannot be responsibly determined
-
-The restricted area is decisive for many block/charge calls. A secondary defender generally cannot establish legal guarding position inside the restricted area against a player in control of the ball or in the act of shooting. If the restricted-area arc or the defender's feet are not visible, say so.
-
-Contact: Did contact occur? If yes, which players, and was it at the torso, arm, lower body, or unclear? Was the contact incidental or significant?
-
-Ball: Where is the ball through the clip? Is the offensive player dribbling, gathering, in upward shooting motion, releasing, or is the ball in flight? If the gather or upward motion is unclear, say unclear.
-
-DEFENDER LEGALITY CHECKLIST:
-For block/charge or shooting-contact plays, explicitly observe:
-- whether the defender is primary or secondary
-- whether both feet appear established before upward motion/contact
-- whether the defender is moving laterally, backward, forward, or vertically
-- whether the defender is inside the restricted area
-- whether the offensive player is airborne or in control of the ball
-- whether contact affects rhythm, speed, balance, or quickness
-
-Visual quality: Honestly assess the camera angle. Is the key moment clearly visible, partially obscured, blocked by another player, or unusable?
-
-UNCERTAINTY DISCIPLINE:
-
-Be honest. If a frame is blurry, an angle is wrong, or you cannot tell what happened, say so and lower perception_confidence.
-
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
-{
-  "sport": "basketball",
-  "event_type": "possible_blocking_foul | possible_charge | possible_travel | possible_goaltending | possible_offensive_foul | out_of_bounds | shot_clock_violation | three_seconds_violation | unclear",
-  "summary": "2 to 4 sentences describing what happens in plain English",
-  "players_involved": [
-    {
-      "role": "offense | defense | unclear",
-      "jersey_color": "color string or null",
-      "position_description": "where they are on the court",
-      "court_zone": "restricted_area | paint_lane | perimeter | beyond_arc | backcourt_or_unclear",
-      "body_state": "motion state at moment of interest"
-    }
-  ],
-  "contact_detected": true,
-  "contact_location": "torso | arm | lower_body | unclear | none",
-  "ball_visible": true,
-  "ball_state": "gathered | dribbling | upward_motion | released | in_flight | unclear",
-  "offensive_control_status": "dribbling | gathered | airborne_shooter | passing | loose_ball | unclear",
-  "defender_status": {
-    "primary_or_secondary": "primary | secondary | unclear",
-    "legal_guarding_position": "established | not_established | unclear",
-    "feet_set_before_contact": true,
-    "moving_direction": "stationary | lateral | forward | backward | vertical | unclear",
-    "inside_restricted_area": true
-  },
-  "court_geometry": {
-    "key_zone": "restricted_area | paint_lane | perimeter | beyond_arc | backcourt_or_unclear",
-    "restricted_area_arc_visible": true,
-    "defender_feet_visible": true,
-    "basket_visible": true
-  },
-  "frame_observations": [
-    {
-      "frame_index": 1,
-      "approx_time_seconds": 0.0,
-      "observation": "short concrete observation"
-    }
-  ],
-  "moment_of_interest_seconds": 0.0,
-  "impact_zone": {
-    "x_percent": 50,
-    "y_percent": 50,
-    "radius_percent": 12,
-    "label": "contact point or decisive action"
-  },
-  "visual_quality": "clear | partial | obstructed | poor",
-  "perception_confidence": 0.0,
-  "notes": "optional caveats"
-}
-
-Impact zone should be normalized to the frame: x_percent and y_percent range from 0 to 100. Use it to identify the visible contact point, foot placement, ball release, boundary touch, or other decisive visual region. If the exact point is unclear, estimate the most relevant area and lower confidence.
-""".strip()
-
-_BASKETBALL_RETRIEVAL_PROMPT = """
-You convert basketball play descriptions into precise rulebook search queries.
-
-Your output will be used to retrieve relevant rules. The search works best on concise, noun-heavy queries that mirror rulebook language, not narrative prose.
-
-QUERY CRAFTING RULES:
-1. Output ONLY the search query as plain text. No preamble, no quotes, no markdown.
-2. 5 to 15 words.
-3. Focus on nouns and rule-relevant concepts: positions, body states, contact, timing, ball state, court geometry.
-4. Avoid narrative connectives like then, after, while, when.
-5. Use canonical rulebook terminology: legal guarding position, restricted area, secondary defender, verticality, established position, airborne shooter, incidental contact, rhythm speed balance quickness, continuation, cylinder, gather, pivot foot, downward flight, boundary line.
-""".strip()
-
-_BASKETBALL_ADJUDICATOR_PROMPT = """
-You are an experienced basketball officiating reviewer with deep knowledge of the NBA rulebook.
-
-You will be given:
-1. A structured description of what happened in a clip, produced by a perception agent
-2. The most relevant rules, retrieved by rulebook search
-3. Optionally, what the on-court referee originally called
-
-Your job is to issue a verdict on whether the original officiating call was correct.
-
-VALID VERDICTS:
-- "fair_call": the original call was consistent with the rules, given the evidence
-- "bad_call": the original call was inconsistent with the rules, given the evidence
-- "inconclusive": the visual evidence is insufficient to render a confident verdict
-
-CITATION DISCIPLINE:
-You must cite at least one rule by its rule_id from the retrieved rules. Do not invent rule IDs. Your reasoning must explicitly connect the play details to the cited rule text.
-
-UNCERTAINTY DISCIPLINE:
-If perception_confidence is low (<0.5) or visual_quality is "obstructed" or "poor", lean toward inconclusive. If the retrieved rules do not cover the situation, return inconclusive with a flag.
-
-BASKETBALL DECISION FRAMEWORK:
-For block/charge and shooting-contact plays, reason in this order:
-1. Court geometry: restricted area, paint/lane, perimeter, or beyond arc. If a secondary defender is inside the restricted area against a player in control or in shooting motion, that strongly affects the ruling.
-2. Timing: whether legal guarding position was established before the gather/upward motion/contact.
-3. Movement: whether the defender maintained legal verticality or moved into the opponent's path/landing space.
-4. Contact effect: whether contact affected rhythm, speed, balance, quickness, shot, or landing.
-5. Visibility: whether feet, contact point, ball state, and restricted-area arc are actually visible.
-
-Do not overclaim from missing details. If the perception output says the defender's feet, restricted-area line, or ball state is unclear, explicitly account for that uncertainty.
-
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
-{
-  "verdict": "fair_call | bad_call | inconclusive",
-  "confidence": 0.0,
-  "primary_rule_id": "rule_id from retrieved rules or null",
-  "supporting_rule_ids": ["additional rule_ids"],
-  "reasoning": "2 to 4 sentences citing the primary rule text and applying evidence",
-  "flags": ["concern strings"]
-}
-""".strip()
-
-CONSERVATIVE_FRAMING = """
-REASONING POSTURE - CONSERVATIVE:
-
-The on-court referee saw the play live, in full speed, from their position. Give the original call the benefit of the doubt unless the rules and perception evidence clearly indicate otherwise. This does not mean defending bad calls.
-""".strip()
-
-SKEPTICAL_FRAMING = """
-REASONING POSTURE - SKEPTICAL:
-
-You are an independent reviewer. Do not defer to the original call by default. Examine the evidence and rules on their own merits. If the evidence supports a different interpretation than the original call, say so.
-""".strip()
-
-
-# ---------------------------------------------------------------------------
-# Stub prompt builders for unimplemented sports.
-# When a sport is fully implemented, replace the stub call in the dict below
-# with a named constant (e.g. _HOCKEY_PERCEPTION_PROMPT = "...").
-# ---------------------------------------------------------------------------
-
-def _make_stub_perception_prompt(sport: str) -> str:
-    return f"""
-You are a sports video analyst reviewing {sport} officiating.
-
-Your job is to describe what you observe in structured form. You are NOT issuing a verdict.
-A separate agent will rule on the call. Be accurate and honest about what you can see.
-
-OBSERVATION GUIDELINES:
-Describe the players involved, their positions, any contact, and the key moment of the play.
-Be honest about what you cannot see. Lower perception_confidence if footage is unclear.
-
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
-{{
-  "sport": "{sport}",
-  "event_type": "unclear",
-  "summary": "2 to 4 sentences describing what happens in plain English",
-  "players_involved": [
-    {{
-      "role": "offense | defense | unclear",
-      "jersey_color": "color string or null",
-      "position_description": "where they are",
-      "court_zone": "backcourt_or_unclear",
-      "body_state": "motion state at moment of interest"
-    }}
-  ],
-  "contact_detected": false,
-  "contact_location": "torso | arm | lower_body | unclear | none",
-  "ball_visible": false,
-  "ball_state": "unclear",
-  "offensive_control_status": "unclear",
-  "defender_status": {{
-    "primary_or_secondary": "unclear",
-    "legal_guarding_position": "unclear",
-    "feet_set_before_contact": false,
-    "moving_direction": "stationary | lateral | forward | backward | vertical | unclear",
-    "inside_restricted_area": false
-  }},
-  "court_geometry": {{
-    "key_zone": "backcourt_or_unclear",
-    "restricted_area_arc_visible": false,
-    "defender_feet_visible": false,
-    "basket_visible": false
-  }},
-  "frame_observations": [
-    {{
-      "frame_index": 1,
-      "approx_time_seconds": 0.0,
-      "observation": "short concrete observation"
-    }}
-  ],
-  "moment_of_interest_seconds": null,
-  "impact_zone": {{
-    "x_percent": 50,
-    "y_percent": 50,
-    "radius_percent": 14,
-    "label": "key moment or contact point"
-  }},
-  "visual_quality": "clear | partial | obstructed | poor",
-  "perception_confidence": 0.3,
-  "notes": "Sport-specific perception guidelines for {sport} are not yet configured."
-}}
-""".strip()
-
-
-def _make_stub_retrieval_prompt(sport: str) -> str:
-    return f"""
-You convert {sport} play descriptions into short rulebook search queries.
-
-Output ONLY the search query as plain text. No preamble, no quotes, no markdown.
-5 to 15 words.
-Focus on the type of play, player actions, and any contact observed.
-""".strip()
-
-
-def _make_stub_adjudicator_prompt(sport: str) -> str:
-    return f"""
-You are a {sport} officiating reviewer.
-
-You will be given a structured description of a play and any retrieved rules.
-Issue a verdict on whether the original call was correct.
-
-VALID VERDICTS:
-- "fair_call": the original call was consistent with the rules, given the evidence
-- "bad_call": the original call was inconsistent with the rules, given the evidence
-- "inconclusive": the visual evidence or available rules are insufficient for a confident verdict
-
-UNCERTAINTY DISCIPLINE:
-If no rules are provided, return inconclusive with a flag noting the absence of rules.
-If perception_confidence is below 0.5, lean toward inconclusive.
-
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
-{{
-  "verdict": "fair_call | bad_call | inconclusive",
-  "confidence": 0.0,
-  "primary_rule_id": null,
-  "supporting_rule_ids": [],
-  "reasoning": "2 to 4 sentences applying available evidence",
-  "flags": ["Sport-specific adjudication guidelines for {sport} are not yet configured."]
-}}
-""".strip()
-
-
-# ---------------------------------------------------------------------------
-# Sport-keyed prompt dicts.
-# Keys must match keys in rules.sport_config.SPORTS.
-# To implement a new sport: add a named constant above and replace the stub
-# call with it here.
-# ---------------------------------------------------------------------------
-
-_PERCEPTION_PROMPTS: dict[str, str] = {
-    "basketball": _BASKETBALL_PERCEPTION_PROMPT,
-    "hockey":     _make_stub_perception_prompt("hockey"),
-    "soccer":     _make_stub_perception_prompt("soccer"),
-    "lacrosse":   _make_stub_perception_prompt("lacrosse"),
-}
-
-_RETRIEVAL_PROMPTS: dict[str, str] = {
-    "basketball": _BASKETBALL_RETRIEVAL_PROMPT,
-    "hockey":     _make_stub_retrieval_prompt("hockey"),
-    "soccer":     _make_stub_retrieval_prompt("soccer"),
-    "lacrosse":   _make_stub_retrieval_prompt("lacrosse"),
-}
-
-_ADJUDICATOR_PROMPTS: dict[str, str] = {
-    "basketball": _BASKETBALL_ADJUDICATOR_PROMPT,
-    "hockey":     _make_stub_adjudicator_prompt("hockey"),
-    "soccer":     _make_stub_adjudicator_prompt("soccer"),
-    "lacrosse":   _make_stub_adjudicator_prompt("lacrosse"),
-}
-
-
-def _get_perception_prompt(sport: str) -> str:
-    return _PERCEPTION_PROMPTS.get(sport, _make_stub_perception_prompt(sport))
-
-
-def _get_retrieval_prompt(sport: str) -> str:
-    return _RETRIEVAL_PROMPTS.get(sport, _make_stub_retrieval_prompt(sport))
-
-
-def _get_adjudicator_prompt(sport: str) -> str:
-    return _ADJUDICATOR_PROMPTS.get(sport, _make_stub_adjudicator_prompt(sport))
-
-
-def _clean(value: str | None, fallback: str = "") -> str:
-    if value is None:
-        return fallback
-    return value.strip() or fallback
-
 
 def _clip_id(video_metadata: dict | None) -> str:
     metadata = video_metadata or {}
     source = f"{metadata.get('stored_path', '')}:{metadata.get('size_bytes', 0)}"
     return sha256(source.encode("utf-8")).hexdigest()[:12]
-
-
-def _frontend_verdict(value: str | None) -> str:
-    normalized = (value or "").lower().strip().replace(" ", "_")
-    mapping = {
-        "fair": "fair_call",
-        "fair_call": "fair_call",
-        "good_call": "fair_call",
-        "correct_call": "fair_call",
-        "bad": "bad_call",
-        "bad_call": "bad_call",
-        "missed_call": "bad_call",
-        "incorrect_call": "bad_call",
-        "inconclusive": "inconclusive",
-    }
-    return mapping.get(normalized, "inconclusive")
 
 
 def _safe_float(value: Any, fallback: float) -> float:
@@ -458,88 +139,6 @@ def _safe_float(value: Any, fallback: float) -> float:
     except (TypeError, ValueError):
         return fallback
     return max(0.0, min(1.0, number))
-
-
-def _video_duration_seconds(video_path: Path) -> float | None:
-    command = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
-        str(video_path),
-    ]
-    try:
-        result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return None
-
-    try:
-        duration = float(result.stdout.strip())
-    except ValueError:
-        return None
-
-    return duration if duration > 0 else None
-
-
-def _extract_frames(video_path: str | None, clip_id: str, max_frames: int = 10) -> list[Path]:
-    if not video_path:
-        return []
-
-    source = Path(video_path)
-    if not source.exists():
-        return []
-
-    output_dir = FRAME_DIR / clip_id
-
-    # Frame cache (Sprint 6 perf): clip_id is derived from the stored path + byte
-    # size, so identical frames for a given clip already on disk are byte-for-byte
-    # reusable. Re-analysis of the same clip (demo suite, benchmark loops, a user
-    # resubmitting) then skips both the ffprobe duration probe and the ffmpeg
-    # decode — the two subprocesses that dominate warm-path latency. Cold path is
-    # unchanged; the extracted frames are identical either way.
-    cached = sorted(output_dir.glob("frame_*.jpg"))[:max_frames]
-    if cached:
-        return cached
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_pattern = str(output_dir / "frame_%03d.jpg")
-
-    duration = _video_duration_seconds(source)
-    fps = 1 if not duration else max_frames / duration
-
-    command = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        str(source),
-        "-vf",
-        f"fps={fps:.4f},scale=768:-1",
-        "-frames:v",
-        str(max_frames),
-        output_pattern,
-    ]
-
-    try:
-        subprocess.run(
-            command,
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=45,
-        )
-    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return []
-
-    return sorted(output_dir.glob("frame_*.jpg"))[:max_frames]
 
 
 def _extract_json(text: str) -> dict:
@@ -561,7 +160,7 @@ def _extract_json(text: str) -> dict:
 def _send_messages(
     *,
     system_prompt: str,
-    user_content,
+    user_content: MessageContent,
     temperature: float,
     max_tokens: int = 1200,
 ) -> str:
@@ -626,106 +225,6 @@ Write the rulebook search query.
         temperature=0,
         max_tokens=80,
     ).strip().strip('"')
-
-
-@lru_cache(maxsize=16)
-def _rule_records(sport: str) -> tuple[dict, ...]:
-    """Static rulebook records for a sport.
-
-    Cached (Sprint 6 perf): the records never change at runtime, yet this was
-    rebuilt — and `rules.sport_config` re-imported — on every retrieval call
-    (once per analysis). Returned as an immutable tuple; callers only read.
-    """
-    from rules.sport_config import get_rules_for_sport
-    return tuple(
-        {
-            "rule_id": key.upper(),
-            "section_title": rule["rule_applied"],
-            "text": rule["summary"],
-            "page_number": rule.get("page_number", 1),
-            "call_type": rule["call_type"],
-        }
-        for key, rule in get_rules_for_sport(sport).items()
-    )
-
-
-def _retrieve_rules(query: str, perception: dict, sport: str, limit: int = 5) -> list[dict]:
-    defender_status = perception.get("defender_status") or {}
-    court_geometry = perception.get("court_geometry") or {}
-    haystack = (
-        f"{query} {perception.get('event_type', '')} {perception.get('summary', '')} "
-        f"{perception.get('offensive_control_status', '')} "
-        f"{court_geometry.get('key_zone', '')} "
-        f"{defender_status.get('primary_or_secondary', '')} "
-        f"{defender_status.get('legal_guarding_position', '')} "
-        f"{defender_status.get('moving_direction', '')}"
-    ).lower()
-    # Ranking is a pure function of (haystack, sport, limit); memoize it so
-    # repeated identical retrievals (demo/benchmark loops) skip re-scoring.
-    return list(_rank_rules(haystack, sport, limit))
-
-
-@lru_cache(maxsize=256)
-def _rank_rules(haystack: str, sport: str, limit: int) -> tuple[dict, ...]:
-    scored: list[tuple[int, dict]] = []
-    for rule in _rule_records(sport):
-        rule_text = (
-            f"{rule['rule_id']} {rule['section_title']} {rule['text']} {rule['call_type']}"
-        ).lower()
-        score = sum(1 for term in haystack.split() if term in rule_text)
-
-        if sport == "basketball":
-            if rule["rule_id"] == "BLOCK_CHARGE" and any(
-                t in haystack for t in ["charge", "blocking", "guarding", "lateral", "torso", "established"]
-            ):
-                score += 6
-            if rule["rule_id"] == "RESTRICTED_AREA" and any(
-                t in haystack for t in ["restricted", "secondary", "paint", "lane", "basket"]
-            ):
-                score += 8
-            if rule["rule_id"] == "VERTICALITY" and any(
-                t in haystack for t in ["vertical", "cylinder", "straight", "landing", "forward"]
-            ):
-                score += 7
-            if rule["rule_id"] == "AIRBORNE_SHOOTER" and any(
-                t in haystack for t in ["airborne", "shooter", "upward", "landing", "shooting"]
-            ):
-                score += 7
-            if rule["rule_id"] == "INCIDENTAL_CONTACT" and any(
-                t in haystack for t in ["incidental", "rhythm", "speed", "balance", "quickness", "marginal"]
-            ):
-                score += 7
-            if rule["rule_id"] == "SHOOTING_CONTACT" and any(
-                t in haystack for t in ["shoot", "shooter", "airborne", "arm", "landing", "verticality"]
-            ):
-                score += 6
-            if rule["rule_id"] == "TRAVEL" and any(
-                t in haystack for t in ["travel", "pivot", "gather", "steps", "dribble"]
-            ):
-                score += 6
-            if rule["rule_id"] == "OUT_OF_BOUNDS" and any(
-                t in haystack for t in ["out", "boundary", "sideline", "baseline", "last"]
-            ):
-                score += 6
-            if rule["rule_id"] == "GOALTENDING" and any(
-                t in haystack for t in ["goaltend", "downward", "cylinder", "rim", "interference"]
-            ):
-                score += 6
-
-        scored.append((score, rule))
-
-    return tuple(
-        rule for _, rule in sorted(scored, key=lambda item: item[0], reverse=True)
-    )[:limit]
-
-
-def _rules_text(rules: list[dict]) -> str:
-    return "\n\n".join(
-        f"[{rule['rule_id']} | page {rule['page_number']}]\n"
-        f"{rule['section_title']}\n"
-        f"{rule['text']}"
-        for rule in rules
-    )
 
 
 def _build_adjudicator_prompt(
@@ -799,116 +298,6 @@ def _adjudicator_agent(
     )
 
 
-def _mock_ai_result(
-    file: UploadFile,
-    sport: str,
-    level_of_play: str,
-    league: str,
-    original_call: str,
-    referee_name: str,
-    video_metadata: dict | None,
-    fallback_reason: str | None,
-) -> dict:
-    result = mock_analyze_clip(
-        file=file,
-        sport=sport,
-        level_of_play=level_of_play,
-        league=league,
-        original_call=original_call,
-        referee_name=referee_name,
-        video_metadata=video_metadata,
-    )
-    confidence = {"High": 0.88, "Medium": 0.68, "Low": 0.42}.get(
-        result["confidence"], 0.5
-    )
-    return {
-        "provider_used": "mock",
-        "fallback_reason": fallback_reason,
-        "retrieval_query": "",
-        "retrieved_rules": [
-            {
-                "rule_id": result["call_type"].upper().replace(" / ", "_").replace(" ", "_"),
-                "section_title": result["rule_applied"],
-                "text": result["evidence"][1],
-                "page_number": 1,
-                "call_type": result["call_type"],
-            }
-        ],
-        "perception": {
-            "sport": sport,
-            "event_type": result["call_type"],
-            "summary": result["evidence"][2],
-            "players_involved": [
-                {
-                    "role": "offense",
-                    "jersey_color": None,
-                    "position_description": "Ball handler near the point of contact",
-                    "court_zone": "paint_lane",
-                    "body_state": "Driving through the play",
-                },
-                {
-                    "role": "defense",
-                    "jersey_color": None,
-                    "position_description": "Defender contesting the play",
-                    "court_zone": "paint_lane",
-                    "body_state": "Establishing or adjusting guarding position",
-                },
-            ],
-            "contact_detected": True,
-            "contact_location": "unclear",
-            "ball_visible": True,
-            "ball_state": "unclear",
-            "offensive_control_status": "unclear",
-            "defender_status": {
-                "primary_or_secondary": "unclear",
-                "legal_guarding_position": "unclear",
-                "feet_set_before_contact": False,
-                "moving_direction": "unclear",
-                "inside_restricted_area": False,
-            },
-            "court_geometry": {
-                "key_zone": "paint_lane",
-                "restricted_area_arc_visible": False,
-                "defender_feet_visible": False,
-                "basket_visible": False,
-            },
-            "frame_observations": [
-                {
-                    "frame_index": 1,
-                    "approx_time_seconds": 4.2,
-                    "observation": "Mock fallback cannot inspect exact court geometry.",
-                }
-            ],
-            "moment_of_interest_seconds": 4.2,
-            "impact_zone": {
-                "x_percent": 50,
-                "y_percent": 50,
-                "radius_percent": 14,
-                "label": "Estimated contact area",
-            },
-            "visual_quality": "partial",
-            "perception_confidence": confidence,
-            "notes": fallback_reason or "Mock fallback used for demo stability.",
-        },
-        "adjudicator_a": {
-            "verdict": _frontend_verdict(result["verdict"]),
-            "confidence": confidence,
-            "primary_rule_id": result["call_type"].upper().replace(" / ", "_").replace(" ", "_"),
-            "supporting_rule_ids": [],
-            "reasoning": result["reasoning"],
-            "flags": [fallback_reason or "Mock fallback used for demo stability."],
-        },
-        "adjudicator_b": {
-            "verdict": _frontend_verdict(result["verdict"]),
-            "confidence": max(0.25, confidence - 0.06),
-            "primary_rule_id": result["call_type"].upper().replace(" / ", "_").replace(" ", "_"),
-            "supporting_rule_ids": [],
-            "reasoning": result["reasoning"],
-            "flags": [fallback_reason or "Mock fallback used for demo stability."],
-        },
-    }
-
-
 def _run_four_agent_pipeline(
     *,
     frame_paths: list[Path],
@@ -919,7 +308,7 @@ def _run_four_agent_pipeline(
     original_call: str,
     referee_name: str,
     video_metadata: dict | None,
-) -> dict:
+) -> AgentResult:
     # Provider selection is delegated to the factory: an invalid AI_PROVIDER
     # raises a clear error here rather than silently degrading. The mock provider
     # takes the canned demo path; real providers (anthropic, gemini) run the four
@@ -1030,7 +419,7 @@ def _run_four_agent_pipeline(
         )
 
 
-def _rule_by_id(rule_id: str | None, rules: list[dict]) -> dict:
+def _rule_by_id(rule_id: str | None, rules: list[RuleRecord]) -> RuleRecord:
     if rule_id:
         normalized = rule_id.upper()
         for rule in rules:
@@ -1215,109 +604,9 @@ def _key_moment_payload(frame_paths: list[Path], perception: dict, clip_id: str,
     }
 
 
-_PERSON_LABELS = {"person", "player"}
-_BALL_LABELS = {"sports ball", "basketball", "ball"}
-
-
-def _detection_summary(detections: RawDetections | None) -> dict:
-    """Compact, label-based counts for diagnostics (no heavy new work)."""
-    if detections is None:
-        return {
-            "detection_frame_count": 0,
-            "detection_object_count": 0,
-            "tracking_present": False,
-            "tracked_object_count": 0,
-            "player_count": 0,
-            "ball_present": False,
-        }
-    object_count = 0
-    tracked = 0
-    players: set = set()
-    ball_present = False
-    for frame in detections.frames:
-        for obj in frame.objects:
-            object_count += 1
-            label = obj.label.lower()
-            if obj.track_id is not None:
-                tracked += 1
-            if label in _PERSON_LABELS:
-                players.add(obj.track_id if obj.track_id is not None else f"anon-{object_count}")
-            if label in _BALL_LABELS:
-                ball_present = True
-    return {
-        "detection_frame_count": len(detections.frames),
-        "detection_object_count": object_count,
-        "tracking_present": tracked > 0,
-        "tracked_object_count": tracked,
-        "player_count": len(players),
-        "ball_present": ball_present,
-    }
-
-
-def _yolo_influence(detections: RawDetections | None, tracked_evidence: dict | None) -> dict:
-    """Diagnostics that make it obvious *when and how* YOLO shaped the verdict.
-
-    Reuses the already-computed `tracked_evidence` (no recomputation). `yolo_influenced`
-    is True whenever detections were available to feed adjudication; the remaining
-    flags show which specific signals (possession, defender, ball trajectory,
-    confidence calibration) actually reached the adjudicators/reconciliation.
-    """
-    evidence = tracked_evidence if isinstance(tracked_evidence, dict) else {}
-    tracking_confidence = evidence.get("tracking_confidence")
-    return {
-        "yolo_influenced": detections is not None,
-        "tracked_evidence_present": bool(evidence),
-        "tracking_confidence": tracking_confidence,
-        "possession_summary": evidence.get("possession_summary"),
-        "defender_tracked": evidence.get("defender_track_id") is not None,
-        "ball_trajectory_present": evidence.get("ball_movement") is not None,
-        # Reconciliation only nudges confidence when a tracking-confidence signal
-        # was available (see _reconcile / _build_response).
-        "influenced_reconciliation": tracking_confidence is not None,
-    }
-
-
-def _diagnostics_payload(
-    provider_used: str,
-    retrieval_query: str,
-    detections: RawDetections | None,
-    detector: str | None = None,
-    frames_analyzed: int = 0,
-    fallback_reason: str | None = None,
-    tracked_evidence: dict | None = None,
-) -> dict:
-    """Additive diagnostics block to support evaluation and debugging (Phase 9/10B).
-
-    Makes it obvious what actually ran: which detector path, whether detections
-    (and stable track_ids) were produced, whether sport_details were enriched
-    from detections or came purely from perception, compact debug counts, and
-    (Sprint 2) whether/how YOLO tracking influenced the decision.
-    Metadata status is attached later in analyze_clip once game_context resolves.
-    """
-    detector_path = detector or ("mock" if provider_used == "mock" else "unknown")
-    summary = _detection_summary(detections)
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "provider_used": provider_used,
-        "detector": detector_path,
-        # None on a real anthropic run; the reason string when the pipeline
-        # degraded to mock (missing key/ffmpeg/ultralytics, or AI_PROVIDER=mock).
-        "fallback_reason": fallback_reason,
-        "frames_analyzed": frames_analyzed,
-        "detections_present": detections is not None,
-        "sport_details_source": "detections" if detections is not None else "perception",
-        "retrieval_query": retrieval_query,
-        # metadata_* are filled in by analyze_clip (after game_context resolves).
-        "metadata_attempted": False,
-        "metadata_status": "not_applicable",
-        **summary,
-        **_yolo_influence(detections, tracked_evidence),
-    }
-
-
 def _build_response(
     *,
-    agent_result: dict,
+    agent_result: AgentResult,
     clip_id: str,
     frame_paths: list[Path],
     video_metadata: dict | None,

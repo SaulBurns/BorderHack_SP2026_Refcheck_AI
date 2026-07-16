@@ -1,12 +1,7 @@
 from fastapi import UploadFile
 
 from rules.basketball_rules import BASKETBALL_RULES, DEFAULT_BASKETBALL_RULE
-
-
-def _clean(value: str | None, fallback: str = "") -> str:
-    if value is None:
-        return fallback
-    return value.strip() or fallback
+from services.text_utils import clean as _clean
 
 
 def _mock_verdict(original_call: str) -> tuple[str, str]:

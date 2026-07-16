@@ -14,9 +14,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from services import config
 from services.ai.provider import AIProvider, MessageContent, normalize_content
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+# Re-exported for backward compatibility; canonical default lives in config.
+DEFAULT_MODEL = config.DEFAULT_GEMINI_MODEL
 
 
 class GeminiProvider(AIProvider):
@@ -36,13 +38,13 @@ class GeminiProvider(AIProvider):
         temperature: float,
         max_tokens: int = 1200,
     ) -> str:
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = os.getenv(config.GEMINI_API_KEY_ENV)
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY is not set")
 
         genai, types = self._load_sdk()
         client = genai.Client(api_key=api_key)
-        model = os.getenv("GEMINI_MODEL") or DEFAULT_MODEL
+        model = os.getenv(config.GEMINI_MODEL_ENV) or DEFAULT_MODEL
 
         response = client.models.generate_content(
             model=model,

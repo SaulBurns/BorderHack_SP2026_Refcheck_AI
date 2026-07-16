@@ -15,6 +15,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from services import config
 from services.ai.provider import AIProvider, MessageContent, normalize_content
 
 try:
@@ -22,7 +23,8 @@ try:
 except ImportError:  # pragma: no cover - certifi is a soft dependency
     certifi = None
 
-DEFAULT_MODEL = "claude-sonnet-4-5"
+# Re-exported for backward compatibility; canonical default lives in config.
+DEFAULT_MODEL = config.DEFAULT_ANTHROPIC_MODEL
 API_URL = "https://api.anthropic.com/v1/messages"
 
 
@@ -43,11 +45,11 @@ class AnthropicProvider(AIProvider):
         temperature: float,
         max_tokens: int = 1200,
     ) -> str:
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = os.getenv(config.ANTHROPIC_API_KEY_ENV)
         if not api_key:
             raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
-        model = os.getenv("AI_MODEL") or DEFAULT_MODEL
+        model = os.getenv(config.AI_MODEL_ENV) or DEFAULT_MODEL
         payload = {
             "model": model,
             "system": system_prompt,

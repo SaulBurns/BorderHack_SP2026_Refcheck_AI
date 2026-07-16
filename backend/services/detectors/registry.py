@@ -10,38 +10,23 @@ Unknown names raise ValueError with the list of supported detectors.
 
 from __future__ import annotations
 
-import os
-
+from services import config
 from services.detectors.base import Detector
 from services.detectors.claude_vision import ClaudeVisionDetector
 from services.detectors.hybrid import HybridDetector
 from services.detectors.yolo import YOLODetector
+from services.registry import Registry
 
-DEFAULT_DETECTOR = "claude_vision"
-DETECTOR_ENV_VAR = "DETECTOR"
+# Re-exported for backward compatibility; canonical values live in config.
+DEFAULT_DETECTOR = config.DEFAULT_DETECTOR
+DETECTOR_ENV_VAR = config.DETECTOR_ENV
 
 
-class DetectorRegistry:
-    """Maps detector names to their implementation classes."""
+class DetectorRegistry(Registry[Detector]):
+    """Maps detector names to their implementation classes (raises on unknown)."""
 
     def __init__(self) -> None:
-        self._detectors: dict[str, type[Detector]] = {}
-
-    def register(self, name: str, detector_cls: type[Detector]) -> None:
-        self._detectors[name.lower().strip()] = detector_cls
-
-    def available(self) -> list[str]:
-        return sorted(self._detectors)
-
-    def create(self, name: str | None = None) -> Detector:
-        key = (name or os.getenv(DETECTOR_ENV_VAR) or DEFAULT_DETECTOR).lower().strip()
-        detector_cls = self._detectors.get(key)
-        if detector_cls is None:
-            raise ValueError(
-                f"Unknown detector {key!r}. Supported detectors: "
-                f"{', '.join(self.available())}."
-            )
-        return detector_cls()
+        super().__init__("detector")
 
 
 registry = DetectorRegistry()
@@ -52,4 +37,4 @@ registry.register("hybrid", HybridDetector)
 
 def get_detector(name: str | None = None) -> Detector:
     """Resolve a detector by name / DETECTOR env / default (claude_vision)."""
-    return registry.create(name)
+    return registry.create(config.resolved_detector(name))

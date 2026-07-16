@@ -5,9 +5,11 @@ payload) into a sport-specific `SportDetails` model. This is the second registry
 seam from the plan (§4): detectors are the "eyes", extractors turn raw detections
 into sport-specific perception detail.
 
-This layer is standalone — nothing in the runtime pipeline imports it yet, so the
-current response behavior is unchanged. Extractors are designed so that when they
-are wired in later, the no-detections path reproduces today's output exactly.
+This layer is wired into the live pipeline: `ai_analyzer` resolves an extractor
+via `get_extractor(sport)` and calls `.extract(...)` when building both the
+adjudication signals and the frontend `sport_details` block. The no-detections
+path (`detections=None`) reproduces the legacy perception-only output exactly, so
+the default Claude-vision path is unchanged.
 """
 
 from __future__ import annotations

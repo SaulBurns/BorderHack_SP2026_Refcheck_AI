@@ -27,6 +27,7 @@ from evaluation.cli import (
 )
 from evaluation.latency import LatencySummary, summarize_latencies
 from evaluation.runner import EvaluationReport, evaluate_predictions
+from services import config
 
 
 @dataclass(frozen=True)
@@ -70,7 +71,7 @@ class BenchmarkReport:
 def run_benchmark(
     dataset_path: str | Path,
     providers: list[str],
-    detector: str = "claude_vision",
+    detector: str = config.DEFAULT_DETECTOR,
     analyze_fn: AnalyzeFn | None = None,
 ) -> BenchmarkReport:
     """Benchmark every provider over the dataset and return a comparison report."""
