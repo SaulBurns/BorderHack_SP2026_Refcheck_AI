@@ -1,6 +1,10 @@
+import copy
 import json
 import os
 import subprocess
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
@@ -9,6 +13,7 @@ from typing import Any
 from fastapi import UploadFile
 
 from services.ai import get_provider, image_part, text_part
+from services.ai.provider import AIProvider
 from services.detectors import RawDetections, get_detector
 from services.extractors import get_extractor
 from services.extractors.basketball_vision import summarize_tracked_evidence
@@ -17,6 +22,94 @@ from services.perception_schema import SCHEMA_VERSION
 
 
 FRAME_DIR = Path(__file__).resolve().parents[1] / "uploads" / "frames"
+
+
+# ---------------------------------------------------------------------------
+# Provider-instance cache (Sprint 6 perf).
+# `get_provider()` re-reads AI_PROVIDER and instantiates a fresh provider object
+# on every call; the pipeline calls it ~5x per analysis (1 pipeline check + 4
+# agent turns). We cache the resolved instance keyed on the resolved provider
+# name, so repeated calls within a process reuse it. A changed AI_PROVIDER (e.g.
+# the evaluation CLI swapping providers between runs) produces a different key and
+# still re-resolves — behavior is identical, only object churn is removed.
+# Providers read their secrets/model lazily inside send_messages, so a cached
+# instance never goes stale on an ANTHROPIC_API_KEY / AI_MODEL change.
+# ---------------------------------------------------------------------------
+
+_PROVIDER_CACHE: dict[str, AIProvider] = {}
+
+
+def _provider_key() -> str:
+    return (os.getenv("AI_PROVIDER") or "mock").strip().lower()
+
+
+def _active_provider() -> AIProvider:
+    key = _provider_key()
+    provider = _PROVIDER_CACHE.get(key)
+    if provider is None:
+        provider = get_provider()
+        _PROVIDER_CACHE[key] = provider
+    return provider
+
+
+def _reset_provider_cache() -> None:
+    """Clear the provider-instance cache (used by tests and the benchmark)."""
+    _PROVIDER_CACHE.clear()
+
+
+# ---------------------------------------------------------------------------
+# Analysis result cache (Sprint 6 perf) — OPT-IN, default OFF.
+# Within a single analysis the four agents are all distinct calls (no duplicate
+# Claude requests exist to remove). Duplicate requests arise *across* analyses of
+# the same clip: demo suites, evaluation benchmarks re-running a dataset, or a
+# user resubmitting a clip. When ANALYSIS_CACHE is truthy, the fully-built
+# response is memoized by (clip identity + inputs + provider + model), so a repeat
+# analysis returns instantly with zero model calls. Default OFF keeps the API
+# byte-for-byte identical to today (adjudicator B runs at temperature 0.7, so
+# re-running is intentionally non-deterministic unless caching is enabled).
+# ---------------------------------------------------------------------------
+
+_RESULT_CACHE: "OrderedDict[str, dict]" = OrderedDict()
+_RESULT_CACHE_MAX = 128
+
+
+def _analysis_cache_enabled() -> bool:
+    return os.getenv("ANALYSIS_CACHE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _analysis_cache_key(
+    clip_id: str,
+    sport: str,
+    level: str,
+    league: str,
+    original_call: str,
+    referee: str,
+) -> str:
+    raw = "|".join(
+        [clip_id, sport, level, league, original_call, referee, _provider_key(), os.getenv("AI_MODEL", "")]
+    )
+    return sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _cache_get(key: str) -> dict | None:
+    cached = _RESULT_CACHE.get(key)
+    if cached is None:
+        return None
+    _RESULT_CACHE.move_to_end(key)
+    # Deep copy so a caller mutating the response never corrupts the cached entry.
+    return copy.deepcopy(cached)
+
+
+def _cache_put(key: str, response: dict) -> None:
+    _RESULT_CACHE[key] = copy.deepcopy(response)
+    _RESULT_CACHE.move_to_end(key)
+    while len(_RESULT_CACHE) > _RESULT_CACHE_MAX:
+        _RESULT_CACHE.popitem(last=False)
+
+
+def _reset_result_cache() -> None:
+    """Clear the analysis result cache (used by tests)."""
+    _RESULT_CACHE.clear()
 
 _BASKETBALL_PERCEPTION_PROMPT = """
 You are a sports video analyst specializing in basketball officiating review.
@@ -406,6 +499,17 @@ def _extract_frames(video_path: str | None, clip_id: str, max_frames: int = 10) 
         return []
 
     output_dir = FRAME_DIR / clip_id
+
+    # Frame cache (Sprint 6 perf): clip_id is derived from the stored path + byte
+    # size, so identical frames for a given clip already on disk are byte-for-byte
+    # reusable. Re-analysis of the same clip (demo suite, benchmark loops, a user
+    # resubmitting) then skips both the ffprobe duration probe and the ffmpeg
+    # decode — the two subprocesses that dominate warm-path latency. Cold path is
+    # unchanged; the extracted frames are identical either way.
+    cached = sorted(output_dir.glob("frame_*.jpg"))[:max_frames]
+    if cached:
+        return cached
+
     output_dir.mkdir(parents=True, exist_ok=True)
     output_pattern = str(output_dir / "frame_%03d.jpg")
 
@@ -467,7 +571,7 @@ def _send_messages(
     (Anthropic, Gemini, mock) is resolved by the factory from AI_PROVIDER. No
     provider-specific code lives here.
     """
-    return get_provider().send_messages(
+    return _active_provider().send_messages(
         system_prompt=system_prompt,
         user_content=user_content,
         temperature=temperature,
@@ -524,9 +628,16 @@ Write the rulebook search query.
     ).strip().strip('"')
 
 
-def _rule_records(sport: str) -> list[dict]:
+@lru_cache(maxsize=16)
+def _rule_records(sport: str) -> tuple[dict, ...]:
+    """Static rulebook records for a sport.
+
+    Cached (Sprint 6 perf): the records never change at runtime, yet this was
+    rebuilt — and `rules.sport_config` re-imported — on every retrieval call
+    (once per analysis). Returned as an immutable tuple; callers only read.
+    """
     from rules.sport_config import get_rules_for_sport
-    return [
+    return tuple(
         {
             "rule_id": key.upper(),
             "section_title": rule["rule_applied"],
@@ -535,7 +646,7 @@ def _rule_records(sport: str) -> list[dict]:
             "call_type": rule["call_type"],
         }
         for key, rule in get_rules_for_sport(sport).items()
-    ]
+    )
 
 
 def _retrieve_rules(query: str, perception: dict, sport: str, limit: int = 5) -> list[dict]:
@@ -549,7 +660,13 @@ def _retrieve_rules(query: str, perception: dict, sport: str, limit: int = 5) ->
         f"{defender_status.get('legal_guarding_position', '')} "
         f"{defender_status.get('moving_direction', '')}"
     ).lower()
+    # Ranking is a pure function of (haystack, sport, limit); memoize it so
+    # repeated identical retrievals (demo/benchmark loops) skip re-scoring.
+    return list(_rank_rules(haystack, sport, limit))
 
+
+@lru_cache(maxsize=256)
+def _rank_rules(haystack: str, sport: str, limit: int) -> tuple[dict, ...]:
     scored: list[tuple[int, dict]] = []
     for rule in _rule_records(sport):
         rule_text = (
@@ -597,9 +714,9 @@ def _retrieve_rules(query: str, perception: dict, sport: str, limit: int = 5) ->
 
         scored.append((score, rule))
 
-    return [
+    return tuple(
         rule for _, rule in sorted(scored, key=lambda item: item[0], reverse=True)
-    ][:limit]
+    )[:limit]
 
 
 def _rules_text(rules: list[dict]) -> str:
@@ -611,17 +728,21 @@ def _rules_text(rules: list[dict]) -> str:
     )
 
 
-def _adjudicator_agent(
+def _build_adjudicator_prompt(
     *,
     perception: dict,
     rules: list[dict],
     original_call: str,
-    framing: str,
-    temperature: float,
-    sport: str,
     sport_details: dict | None = None,
     tracked_evidence: dict | None = None,
-) -> dict:
+) -> str:
+    """Build the adjudicator user prompt.
+
+    The user prompt is *identical* for both adjudicators — only the system
+    framing and temperature differ. Building it once (Sprint 6) avoids
+    serializing the perception dict, sport signals, tracked evidence and
+    rulebook text twice per analysis. Byte-for-byte the same prompt as before.
+    """
     original_call_line = (
         f"'{original_call}'"
         if original_call
@@ -648,7 +769,7 @@ def _adjudicator_agent(
         if tracked_evidence
         else ""
     )
-    prompt = f"""
+    return f"""
 Original call: {original_call_line}
 
 PERCEPTION OUTPUT:
@@ -659,10 +780,19 @@ RETRIEVED RULES:
 
 Issue your verdict as JSON.
 """.strip()
+
+
+def _adjudicator_agent(
+    *,
+    user_prompt: str,
+    framing: str,
+    temperature: float,
+    sport: str,
+) -> dict:
     return _extract_json(
         _send_messages(
             system_prompt=f"{_get_adjudicator_prompt(sport)}\n\n{framing}",
-            user_content=prompt,
+            user_content=user_prompt,
             temperature=temperature,
             max_tokens=1200,
         )
@@ -794,7 +924,7 @@ def _run_four_agent_pipeline(
     # raises a clear error here rather than silently degrading. The mock provider
     # takes the canned demo path; real providers (anthropic, gemini) run the four
     # agents through the shared `_send_messages` seam.
-    provider = get_provider()
+    provider = _active_provider()
 
     if provider.is_mock:
         return _mock_ai_result(
@@ -844,26 +974,38 @@ def _run_four_agent_pipeline(
             if detections is not None and sport == "basketball"
             else None
         )
-        adjudicator_a = _adjudicator_agent(
+        # Both adjudicators receive the identical user prompt (only the system
+        # framing + temperature differ), so build it once (Sprint 6 perf).
+        adjudicator_prompt = _build_adjudicator_prompt(
             perception=perception,
             rules=retrieved_rules,
             original_call=original_call,
-            framing=CONSERVATIVE_FRAMING,
-            temperature=0.2,
-            sport=sport,
             sport_details=sport_details_for_adjudication,
             tracked_evidence=tracked_evidence,
         )
-        adjudicator_b = _adjudicator_agent(
-            perception=perception,
-            rules=retrieved_rules,
-            original_call=original_call,
-            framing=SKEPTICAL_FRAMING,
-            temperature=0.7,
-            sport=sport,
-            sport_details=sport_details_for_adjudication,
-            tracked_evidence=tracked_evidence,
-        )
+        # Adjudicators A and B are independent model calls with no shared state:
+        # run them concurrently (Sprint 6 perf). The provider does blocking socket
+        # I/O, which releases the GIL, so two threads give real wall-clock overlap
+        # — cutting adjudication latency from ~2x a model round-trip to ~1x. A
+        # failure in either thread re-raises via .result() and is caught by the
+        # surrounding except, preserving the exact mock-fallback behavior.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            future_a = pool.submit(
+                _adjudicator_agent,
+                user_prompt=adjudicator_prompt,
+                framing=CONSERVATIVE_FRAMING,
+                temperature=0.2,
+                sport=sport,
+            )
+            future_b = pool.submit(
+                _adjudicator_agent,
+                user_prompt=adjudicator_prompt,
+                framing=SKEPTICAL_FRAMING,
+                temperature=0.7,
+                sport=sport,
+            )
+            adjudicator_a = future_a.result()
+            adjudicator_b = future_b.result()
         return {
             "provider_used": "anthropic_four_agent",
             "detector": detector.name,
@@ -1268,6 +1410,27 @@ def analyze_clip(
     normalized_original_call = _clean(original_call)
     normalized_referee_name = _clean(referee_name)
     clip_id = _clip_id(video_metadata)
+
+    # Opt-in result cache: return a prior identical analysis without any model
+    # calls. Default OFF (see _analysis_cache_enabled) so behavior is unchanged.
+    cache_enabled = _analysis_cache_enabled()
+    cache_key = (
+        _analysis_cache_key(
+            clip_id,
+            normalized_sport,
+            normalized_level,
+            normalized_league,
+            normalized_original_call,
+            normalized_referee_name,
+        )
+        if cache_enabled
+        else ""
+    )
+    if cache_enabled:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
     frame_paths = _extract_frames((video_metadata or {}).get("stored_path"), clip_id)
 
     agent_result = _run_four_agent_pipeline(
@@ -1318,5 +1481,8 @@ def analyze_clip(
     if isinstance(diagnostics, dict):
         diagnostics["metadata_attempted"] = metadata_attempted
         diagnostics["metadata_status"] = metadata_status
+
+    if cache_enabled:
+        _cache_put(cache_key, response)
 
     return response

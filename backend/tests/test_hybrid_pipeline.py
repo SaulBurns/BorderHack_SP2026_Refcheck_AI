@@ -130,9 +130,10 @@ def test_pipeline_does_not_fall_back_to_mock_when_yolo_fails(monkeypatch):
                         lambda name=None: HybridDetector(claude_detector=_FakeClaude(), yolo_detector=_FailingYolo()))
     monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
     monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
+    monkeypatch.setattr(ai, "_build_adjudicator_prompt",
+                        lambda **k: captured.setdefault("te", k.get("tracked_evidence")) or "PROMPT")
     monkeypatch.setattr(ai, "_adjudicator_agent",
-                        lambda **k: captured.setdefault("te", k.get("tracked_evidence")) or
-                        {"verdict": "inconclusive", "confidence": 0.5})
+                        lambda **k: {"verdict": "inconclusive", "confidence": 0.5})
     result = _run_four_agent_pipeline(
         frame_paths=[Path("f.jpg")], file=MagicMock(), sport="basketball",
         level_of_play="", league="", original_call="", referee_name="", video_metadata=None,
@@ -150,6 +151,7 @@ def test_pipeline_does_not_fall_back_to_mock_when_yolo_fails(monkeypatch):
 def test_tracked_evidence_reaches_both_adjudicators(monkeypatch):
     dets = _dets(_controlled(1) + [_obj("person", 0.75, 0.5, 0.2, 0.6, track_id=2)],
                  _controlled(1, x=0.55) + [_obj("person", 0.8, 0.5, 0.2, 0.6, track_id=2)])
+    built = {}
     seen = []
 
     class _FakeDetector:
@@ -157,22 +159,27 @@ def test_tracked_evidence_reaches_both_adjudicators(monkeypatch):
         def detect(self, frames, sport, original_call):
             return DetectorResult(perception={"sport": sport, "event_type": "x"}, detections=dets)
 
+    def fake_build(**kwargs):
+        built["tracked_evidence"] = kwargs.get("tracked_evidence")
+        return "SHARED_PROMPT"
+
     def fake_adjudicator(**kwargs):
-        seen.append(kwargs.get("tracked_evidence"))
+        seen.append(kwargs.get("user_prompt"))
         return {"verdict": "inconclusive", "confidence": 0.5}
 
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setattr(ai, "get_detector", lambda name=None: _FakeDetector())
     monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
     monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
+    monkeypatch.setattr(ai, "_build_adjudicator_prompt", fake_build)
     monkeypatch.setattr(ai, "_adjudicator_agent", fake_adjudicator)
     _run_four_agent_pipeline(
         frame_paths=[Path("f.jpg")], file=MagicMock(), sport="basketball",
         level_of_play="", league="", original_call="", referee_name="", video_metadata=None,
     )
-    assert len(seen) == 2                       # both adjudicators called
-    assert all(te is not None for te in seen)   # both received tracked evidence
-    assert seen[0] is seen[1]                    # same object (computed once, not per-adjudicator)
+    assert built["tracked_evidence"] is not None   # evidence fed into the shared prompt (built once)
+    assert len(seen) == 2                           # both adjudicators called
+    assert seen == ["SHARED_PROMPT", "SHARED_PROMPT"]  # both received the identical prompt
 
 
 # ---------------------------------------------------------------------------

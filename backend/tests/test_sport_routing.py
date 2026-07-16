@@ -161,13 +161,13 @@ def test_rule_records_basketball_has_block_charge():
     assert "BLOCK_CHARGE" in ids
 
 def test_rule_records_hockey_returns_empty_list():
-    assert _rule_records("hockey") == []
+    assert _rule_records("hockey") == ()
 
 def test_rule_records_soccer_returns_empty_list():
-    assert _rule_records("soccer") == []
+    assert _rule_records("soccer") == ()
 
 def test_rule_records_lacrosse_returns_empty_list():
-    assert _rule_records("lacrosse") == []
+    assert _rule_records("lacrosse") == ()
 
 
 def test_retrieve_rules_basketball_returns_block_charge_first_for_blocking_query():

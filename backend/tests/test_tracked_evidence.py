@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import services.ai_analyzer as ai
-from services.ai_analyzer import _adjudicator_agent, _reconcile
+from services.ai_analyzer import _build_adjudicator_prompt, _reconcile
 from services.detectors.detection_models import (
     BoundingBox,
     DetectionObject,
@@ -133,44 +133,25 @@ def test_summary_tracking_confidence_bounds_and_scaling():
 # Adjudicator prompt now carries tracked evidence (what reaches Claude)
 # ---------------------------------------------------------------------------
 
-def _capture_prompt(monkeypatch):
-    captured = {}
-    valid = ('{"verdict":"fair_call","confidence":0.6,"primary_rule_id":null,'
-             '"supporting_rule_ids":[],"reasoning":"r","flags":[]}')
-
-    def fake_call(*, system_prompt, user_content, temperature, max_tokens=1200):
-        captured["prompt"] = user_content
-        return valid
-
-    monkeypatch.setattr(ai, "_send_messages", fake_call)
-    return captured
-
-def test_adjudicator_includes_tracked_evidence_when_present(monkeypatch):
-    captured = _capture_prompt(monkeypatch)
-    _adjudicator_agent(
+def test_adjudicator_includes_tracked_evidence_when_present():
+    # The shared adjudicator prompt (built once, Sprint 6) carries the evidence.
+    prompt = _build_adjudicator_prompt(
         perception={"event_type": "possible_blocking_foul"},
         rules=[],
         original_call="",
-        framing="POSTURE",
-        temperature=0.2,
-        sport="basketball",
         tracked_evidence={"ball_handler_track_id": 1, "defender_track_id": 2, "possession_summary": "dribbling"},
     )
-    assert "TRACKED DETECTION EVIDENCE" in captured["prompt"]
-    assert "ball_handler_track_id" in captured["prompt"]
+    assert "TRACKED DETECTION EVIDENCE" in prompt
+    assert "ball_handler_track_id" in prompt
 
-def test_adjudicator_omits_tracked_evidence_when_none(monkeypatch):
-    captured = _capture_prompt(monkeypatch)
-    _adjudicator_agent(
+def test_adjudicator_omits_tracked_evidence_when_none():
+    prompt = _build_adjudicator_prompt(
         perception={"event_type": "x"},
         rules=[],
         original_call="",
-        framing="POSTURE",
-        temperature=0.2,
-        sport="basketball",
         tracked_evidence=None,
     )
-    assert "TRACKED DETECTION EVIDENCE" not in captured["prompt"]
+    assert "TRACKED DETECTION EVIDENCE" not in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -235,15 +216,16 @@ def test_pipeline_threads_tracked_evidence(monkeypatch):
         def detect(self, frames, sport, original_call):
             return DetectorResult(perception={"sport": sport, "event_type": "unclear"}, detections=dets)
 
-    def fake_adjudicator(**kwargs):
+    def fake_build(**kwargs):
         captured["tracked_evidence"] = kwargs.get("tracked_evidence")
-        return {"verdict": "inconclusive", "confidence": 0.5}
+        return "PROMPT"
 
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setattr(ai, "get_detector", lambda name=None: _FakeDetector())
     monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
     monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
-    monkeypatch.setattr(ai, "_adjudicator_agent", fake_adjudicator)
+    monkeypatch.setattr(ai, "_build_adjudicator_prompt", fake_build)
+    monkeypatch.setattr(ai, "_adjudicator_agent", lambda **k: {"verdict": "inconclusive", "confidence": 0.5})
 
     result = _run_four_agent_pipeline(
         frame_paths=[Path("f.jpg")],
@@ -281,8 +263,9 @@ def test_pipeline_no_tracked_evidence_for_non_basketball(monkeypatch):
     monkeypatch.setattr(ai, "get_detector", lambda name=None: _FakeDetector())
     monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
     monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
-    monkeypatch.setattr(ai, "_adjudicator_agent",
-                        lambda **k: captured.setdefault("te", k.get("tracked_evidence")) or {"verdict": "inconclusive", "confidence": 0.5})
+    monkeypatch.setattr(ai, "_build_adjudicator_prompt",
+                        lambda **k: captured.setdefault("te", k.get("tracked_evidence")) or "PROMPT")
+    monkeypatch.setattr(ai, "_adjudicator_agent", lambda **k: {"verdict": "inconclusive", "confidence": 0.5})
 
     result = _run_four_agent_pipeline(
         frame_paths=[Path("f.jpg")], file=MagicMock(), sport="hockey",

@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import services.ai_analyzer as ai
-from services.ai_analyzer import _adjudicator_agent, _build_response, _run_four_agent_pipeline, analyze_clip
+from services.ai_analyzer import _build_adjudicator_prompt, _build_response, _run_four_agent_pipeline, analyze_clip
 from services.detectors.detection_models import (
     BoundingBox,
     DetectionObject,
@@ -53,44 +53,25 @@ def _agent_result(detections=None):
 # Adjudicator prompt includes sport_details only when provided
 # ---------------------------------------------------------------------------
 
-def test_adjudicator_includes_sport_details_when_present(monkeypatch):
-    captured = {}
-
-    def fake_call(*, system_prompt, user_content, temperature, max_tokens=1200):
-        captured["prompt"] = user_content
-        return _VALID_VERDICT_JSON
-
-    monkeypatch.setattr(ai, "_send_messages", fake_call)
-    _adjudicator_agent(
+def test_adjudicator_includes_sport_details_when_present():
+    # The identical user prompt for both adjudicators is built once (Sprint 6).
+    prompt = _build_adjudicator_prompt(
         perception={"event_type": "possible_blocking_foul"},
         rules=[],
         original_call="",
-        framing="POSTURE",
-        temperature=0.2,
-        sport="basketball",
         sport_details={"basketball": {"offensive_control_status": "dribbling"}},
     )
-    assert "SPORT-SPECIFIC SIGNALS" in captured["prompt"]
-    assert "dribbling" in captured["prompt"]
+    assert "SPORT-SPECIFIC SIGNALS" in prompt
+    assert "dribbling" in prompt
 
-def test_adjudicator_omits_sport_details_when_none(monkeypatch):
-    captured = {}
-
-    def fake_call(*, system_prompt, user_content, temperature, max_tokens=1200):
-        captured["prompt"] = user_content
-        return _VALID_VERDICT_JSON
-
-    monkeypatch.setattr(ai, "_send_messages", fake_call)
-    _adjudicator_agent(
+def test_adjudicator_omits_sport_details_when_none():
+    prompt = _build_adjudicator_prompt(
         perception={"event_type": "possible_blocking_foul"},
         rules=[],
         original_call="",
-        framing="POSTURE",
-        temperature=0.2,
-        sport="basketball",
         sport_details=None,
     )
-    assert "SPORT-SPECIFIC SIGNALS" not in captured["prompt"]
+    assert "SPORT-SPECIFIC SIGNALS" not in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -105,15 +86,16 @@ def _run_pipeline_capturing(monkeypatch, detections):
         def detect(self, frames, sport, original_call):
             return DetectorResult(perception={"sport": sport, "event_type": "unclear"}, detections=detections)
 
-    def fake_adjudicator(**kwargs):
+    def fake_build(**kwargs):
         captured["sport_details"] = kwargs.get("sport_details")
-        return {"verdict": "inconclusive", "confidence": 0.5}
+        return "PROMPT"
 
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setattr(ai, "get_detector", lambda name=None: _FakeDetector())
     monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
     monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
-    monkeypatch.setattr(ai, "_adjudicator_agent", fake_adjudicator)
+    monkeypatch.setattr(ai, "_build_adjudicator_prompt", fake_build)
+    monkeypatch.setattr(ai, "_adjudicator_agent", lambda **k: {"verdict": "inconclusive", "confidence": 0.5})
 
     _run_four_agent_pipeline(
         frame_paths=[Path("f.jpg")],
