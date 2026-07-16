@@ -152,6 +152,17 @@ Next.js 15 App Router. Six screens in `src/app/screens/` — `Home`, `Upload`, `
 
 The only file that talks to the backend is `src/lib/api.ts`. It reads `NEXT_PUBLIC_API_BASE` (must be set at **build time** for Vercel, not just runtime). `analyzeClip()` POSTs multipart form data; the verdict is cached in `sessionStorage` keyed by `clip_id` so the verdict page survives a reload without re-calling the API.
 
+#### AI reasoning overlay (Verdict screen)
+
+The Verdict screen renders an **AI Reasoning Overlay** on the uploaded clip via `src/app/components/AiReasoningPanel.tsx`. It layers: tracked players (offense/defender markers), the tracked ball, the impact zone, movement arrows, a confidence heatmap, a possession timeline, an event timeline, and key-frame navigation. Layers are individually toggleable.
+
+- **No backend API change.** The overlay is built entirely from data the `/api/analyze` response already returns: `verdict.perception` (impact zone, `players_involved`, `frame_observations`, `sport_details`), `verdict.confidence`, `key_moment`, and the `diagnostics` block (player/ball counts, `possession_summary`, `tracking_confidence`, movement) — the last of which was already emitted by the backend and is now mirrored in `src/lib/types.ts` (`Diagnostics`).
+- **Pure geometry is isolated and unit-tested.** `src/lib/overlay.ts` holds the framework-free helpers (`buildOverlayMarkers`, `movementVector`, `buildEventTimeline`, `buildKeyFrames`, `possessionSegments`), covered by `src/lib/overlay.test.ts` (`npm test`).
+- **Honest positioning.** The backend does not expose raw per-frame CV bounding boxes, so player/ball markers use an AI-reasoning layout anchored on the real impact zone and driven by the detected roles/possession/movement — labeled as approximate in the UI. Everything else (impact zone, confidence, possession, timelines) is real response data.
+- **Rendering components:** `ReasoningOverlay.tsx` (SVG/CSS layers over the video), `ReasoningTimelines.tsx` (`PossessionTimeline` / `EventTimeline` / `KeyFrameNav`), composed by `AiReasoningPanel.tsx`, which owns the `<video>` ref so timeline/key-frame clicks seek playback.
+
+Run `npm run build` (or `npm test` for the overlay units) after touching these.
+
 ### Deployment
 
 - **Backend → Render**: `render.yaml` at repo root; rootDir=`backend`; build=`bash build.sh`; start=`uvicorn app.api.main:app --host 0.0.0.0 --port $PORT`
