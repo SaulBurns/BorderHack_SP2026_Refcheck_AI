@@ -3,6 +3,9 @@
 These return their sport's default details model and ignore detections for now
 (no sport-specific derivation authored yet), consistent with the empty rule
 datasets for these sports.
+
+Soccer graduated out of this module in Sprint 10: its real extractor lives in
+``sports/soccer/extractor.py`` and is registered directly.
 """
 
 from __future__ import annotations
@@ -12,7 +15,6 @@ from services.perception_schema import (
     EmptySportDetails,
     HockeyDetails,
     LacrosseDetails,
-    SoccerDetails,
 )
 
 
@@ -21,13 +23,6 @@ class HockeyDetailExtractor:
 
     def extract(self, detections: RawDetections | None, perception: dict) -> HockeyDetails:
         return HockeyDetails()
-
-
-class SoccerDetailExtractor:
-    sport = "soccer"
-
-    def extract(self, detections: RawDetections | None, perception: dict) -> SoccerDetails:
-        return SoccerDetails()
 
 
 class LacrosseDetailExtractor:

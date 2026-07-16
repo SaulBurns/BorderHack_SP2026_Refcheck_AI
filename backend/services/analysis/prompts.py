@@ -11,6 +11,16 @@ the stub call in the corresponding dict below.
 
 from __future__ import annotations
 
+# Soccer owns its prompt strings in its plugin (Sprint 10); the catalog imports
+# them so the pipeline's `_get_*_prompt("soccer")` selectors resolve to the real
+# soccer prompts instead of the generic stubs. Import is a pure string module
+# (no `services` imports), so it introduces no cycle.
+from sports.soccer.prompts import (
+    SOCCER_ADJUDICATOR_PROMPT,
+    SOCCER_PERCEPTION_PROMPT,
+    SOCCER_RETRIEVAL_PROMPT,
+)
+
 
 _BASKETBALL_PERCEPTION_PROMPT = """
 You are a sports video analyst specializing in basketball officiating review.
@@ -294,21 +304,21 @@ Output ONLY valid JSON. No prose, no markdown fences.
 _PERCEPTION_PROMPTS: dict[str, str] = {
     "basketball": _BASKETBALL_PERCEPTION_PROMPT,
     "hockey":     _make_stub_perception_prompt("hockey"),
-    "soccer":     _make_stub_perception_prompt("soccer"),
+    "soccer":     SOCCER_PERCEPTION_PROMPT,
     "lacrosse":   _make_stub_perception_prompt("lacrosse"),
 }
 
 _RETRIEVAL_PROMPTS: dict[str, str] = {
     "basketball": _BASKETBALL_RETRIEVAL_PROMPT,
     "hockey":     _make_stub_retrieval_prompt("hockey"),
-    "soccer":     _make_stub_retrieval_prompt("soccer"),
+    "soccer":     SOCCER_RETRIEVAL_PROMPT,
     "lacrosse":   _make_stub_retrieval_prompt("lacrosse"),
 }
 
 _ADJUDICATOR_PROMPTS: dict[str, str] = {
     "basketball": _BASKETBALL_ADJUDICATOR_PROMPT,
     "hockey":     _make_stub_adjudicator_prompt("hockey"),
-    "soccer":     _make_stub_adjudicator_prompt("soccer"),
+    "soccer":     SOCCER_ADJUDICATOR_PROMPT,
     "lacrosse":   _make_stub_adjudicator_prompt("lacrosse"),
 }
 

@@ -13,9 +13,9 @@ from services.extractors.placeholders import (
     EmptyDetailExtractor,
     HockeyDetailExtractor,
     LacrosseDetailExtractor,
-    SoccerDetailExtractor,
 )
 from services.registry import Registry
+from sports.soccer.extractor import SoccerDetailExtractor
 
 
 class ExtractorRegistry(Registry[SportDetailExtractor]):

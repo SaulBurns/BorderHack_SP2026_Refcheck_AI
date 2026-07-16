@@ -1,0 +1,9 @@
+[
+  { "clip_id": "soccer_foul_01", "sport": "soccer", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/soccer_foul_01.mp4", "original_call": "Direct free kick for a trip just outside the penalty area", "notes": "foul" },
+  { "clip_id": "soccer_offside_02", "sport": "soccer", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/soccer_offside_02.mp4", "original_call": "Goal disallowed — attacker offside when the ball was played", "notes": "offside" },
+  { "clip_id": "soccer_handball_03", "sport": "soccer", "ground_truth_verdict": "bad_call", "video_path": "demo_clips/soccer_handball_03.mp4", "original_call": "Penalty for handball — ball struck the defender's arm in the box", "notes": "handball" },
+  { "clip_id": "soccer_penalty_04", "sport": "soccer", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/soccer_penalty_04.mp4", "original_call": "Penalty awarded for a trip on the attacker inside the area", "notes": "penalty" },
+  { "clip_id": "soccer_red_card_05", "sport": "soccer", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/soccer_red_card_05.mp4", "original_call": "Straight red card for serious foul play (studs-up lunge)", "notes": "red_card" },
+  { "clip_id": "soccer_yellow_card_06", "sport": "soccer", "ground_truth_verdict": "bad_call", "video_path": "demo_clips/soccer_yellow_card_06.mp4", "original_call": "No card — reckless tactical foul stopping a counter-attack", "notes": "yellow_card" },
+  { "clip_id": "soccer_goal_07", "sport": "soccer", "ground_truth_verdict": "inconclusive", "video_path": "demo_clips/soccer_goal_07.mp4", "original_call": "Goal awarded — ball judged to have crossed the line", "notes": "goal" }
+]

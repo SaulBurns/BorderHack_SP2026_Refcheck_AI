@@ -27,7 +27,7 @@ python scripts/run_demo_suite.py            # 10 curated scenarios → metrics r
 
 - Frontend: Next.js 15 (App Router) — Verdict screen with an **AI reasoning overlay**
 - Backend: FastAPI — synchronous four-agent pipeline off the event loop
-- Sports are **plugins** (`backend/sports/`): each sport owns its prompts, rules, tracking, and game context behind a `Sport` interface; the pipeline never checks `sport == "basketball"`. Adding soccer/hockey/lacrosse = one plugin + one registry line.
+- Sports are **plugins** (`backend/sports/`): each sport owns its prompts, rules, tracking, and game context behind a `Sport` interface; the pipeline never checks `sport == "basketball"`. **Basketball** and **soccer** (Sprint 10) ship as full plugins; hockey/lacrosse fall back to a generic Claude-only plugin. Adding a sport = one plugin package + one registry line.
 - Analysis: ffmpeg frame extraction + provider-agnostic Claude/Gemini pipeline with mock fallback + optional YOLO tracking
 - Evaluation: offline benchmarking harness (accuracy/precision/recall/F1, calibration, latency, provider comparison)
 - Optional persistence: Supabase Postgres + Supabase Storage
@@ -359,10 +359,23 @@ python scripts/run_demo_suite.py --provider anthropic --detector hybrid --strict
 python scripts/run_demo_suite.py --clip-id nba_goaltending_07
 ```
 
+**Soccer** (Sprint 10) ships its own curated suite of 7 scenarios — foul, offside,
+handball, penalty, red card, yellow card, and goal:
+
+```bash
+python scripts/run_demo_suite.py --manifest demo_clips/soccer_manifest.json
+```
+
 > The checked-in `demo_clips/*.mp4` are tiny **placeholders** so the suite runs
 > anywhere; drop real footage at those paths (or edit `video_path`) for a live
 > sponsor demo. Without `ANTHROPIC_API_KEY`/`ffmpeg` the suite runs transparently
 > in mock mode and labels every clip accordingly.
+
+The evaluation harness has a matching soccer benchmark dataset:
+
+```bash
+python -m evaluation --dataset data/eval/benchmark_soccer.json --provider mock --output soccer_report.json
+```
 
 ## Generated Files
 

@@ -90,16 +90,24 @@ sports/
   base.py         # Sport ABC: perception/retrieval/adjudicator prompts,
                   #   boost_rule_score, sport_details, tracked_evidence, metadata_provider
   registry.py     # SportRegistry + get_sport() (GenericSport fallback for unknown sports)
-  generic.py      # GenericSport — Claude-only, no tracking/game-context (hockey/soccer/lacrosse today)
+  generic.py      # GenericSport — Claude-only, no tracking/game-context (hockey/lacrosse today)
   basketball/     # first full implementation
     sport.py      #   BasketballSport wiring
     rules.py      #   basketball rule-retrieval boosts (moved out of services/analysis/retrieval.py)
+  soccer/         # second full implementation (Sprint 10)
+    sport.py         # SoccerSport wiring
+    prompts.py       # soccer perception/retrieval/adjudicator prompts (real, not stubs)
+    rules.py         # soccer rule-retrieval boosts (corpus lives in rules/soccer_rules.py)
+    tracking.py      # soccer tracked-evidence layer (possession, ball movement, attacking direction)
+    extractor.py     # SoccerDetailExtractor -> SoccerDetails (registered in the shared extractor registry)
+    game_context.py  # metadata-provider seam (returns None — no soccer match DB yet)
 ```
 
-- **What the plugin owns:** prompt selection (from the shared catalog), rule-retrieval boosts, sport-details extraction, tracking evidence, and the game-context metadata provider.
+- **What the plugin owns:** prompt selection, rule-retrieval boosts, sport-details extraction, tracking evidence, and the game-context metadata provider. Basketball delegates its prompts/extractor to the shared catalog/registry; **soccer** owns its prompt strings in `sports/soccer/prompts.py` (imported into the shared catalog so the pipeline's `_get_*_prompt("soccer")` selectors resolve them) and its `SoccerDetailExtractor` in `sports/soccer/extractor.py` (registered in `services/extractors/registry.py`). Either style satisfies the `Sport` interface.
 - **How the generic services delegate to it:** `services/analysis/retrieval.py` calls `get_sport(sport).boost_rule_score(...)` (was an inline `if sport == "basketball"` boost table); `services/metadata/registry.py:get_metadata_provider(sport)` returns `get_sport(sport).metadata_provider()`; `ai_analyzer._run_four_agent_pipeline` uses `get_sport(sport).sport_details(...)` and `.tracked_evidence(...)`. These generic functions stay as the stable, monkeypatchable seams; only the *decision* moved into the plugin.
-- **Behavior is identical.** A `GenericSport` (name-carrying) is returned for any unregistered sport, reproducing the pre-plugin Claude-only path. Import cycles are avoided by lazy `from sports import get_sport` inside the delegating service functions.
-- **Adding a sport** (soccer/hockey/lacrosse): create a `Sport` subclass under `sports/<sport>/`, register it in `sports/registry.py`. The pipeline, providers, detectors, and evaluation need zero changes.
+- **Behavior is identical for unimplemented sports.** A `GenericSport` (name-carrying) is returned for any unregistered sport (hockey/lacrosse), reproducing the pre-plugin Claude-only path. Import cycles are avoided by lazy `from sports import get_sport` inside the delegating service functions, and by keeping all `services` imports lazy (inside methods) in every `sports/<sport>/sport.py`.
+- **Soccer supported events (Sprint 10):** foul, offside, handball, penalty, red card, yellow card, goal — each a rule record in `rules/soccer_rules.py` (keys become uppercase `rule_id`s) with a tuned retrieval boost in `sports/soccer/rules.py`.
+- **Adding a sport** (hockey/lacrosse next): create a `Sport` subclass package under `sports/<sport>/`, add its rule corpus to `rules/<sport>_rules.py` + `rules/sport_config.py`, and register it in `sports/registry.py`. The pipeline, providers, detectors, and evaluation need zero changes. See `sports/soccer/` as the reference implementation.
 
 ### The `services/analysis/` package (Sprint 7)
 
@@ -169,13 +177,15 @@ backend/services/ai/
 
 **Influence diagnostics:** `_diagnostics_payload` reuses the already-computed `tracked_evidence` (no recomputation) to expose `yolo_influenced`, `tracked_evidence_present`, `tracking_confidence`, `possession_summary`, `defender_tracked`, `ball_trajectory_present`, and `influenced_reconciliation` — so it is visible when and how YOLO shaped a decision.
 
-**Scope note:** the tracked-evidence layer is basketball-only for now (gated on `sport == "basketball"`); other sports get Claude-only perception, unchanged.
+**Scope note:** basketball and soccer each own a tracked-evidence layer (`services/extractors/basketball_vision.py` and `sports/soccer/tracking.py` respectively), reached via `get_sport(sport).tracked_evidence(detections)`; hockey/lacrosse (GenericSport) return `None` and get Claude-only perception, unchanged. Soccer's tracking reuses the sport-agnostic primitives (`track_players`, `trajectory_movement`) from `basketball_vision` and adds soccer ball-label handling + possession/attacking-direction framing.
 
 ### Demo suite & curated dataset
 
 `backend/demo_clips/manifest.json` is a curated basketball dataset: 10 officiating scenarios (charge, blocking foul, shooting foul, travel, double dribble, out of bounds, goaltending, illegal screen, verticality, loose-ball foul). Each entry carries `scenario`, `original_call`, metadata (`game_date`/`home_team`/`away_team`), an `expected_verdict`, an `expected_rule_id` (a `rules/basketball_rules.py` key, or `null` when no rule chunk backs that scenario yet), a human-readable `rule_citation`, an `expected_confidence` (`high`/`medium`/`low`), and `notes`. Only `clip_id`/`sport`/`video_path`/`original_call` are required — every added field is optional and backward compatible.
 
 `backend/scripts/run_demo_suite.py` runs the suite. Sponsors run it with zero arguments (`python scripts/run_demo_suite.py`) — `--manifest` defaults to `DEFAULT_MANIFEST` (the shipped manifest). It runs each clip through the **real** `analyze_clip` (reusing `demo_analyze.run_demo` / `_real_pipeline_ran` — one source of truth for "did the real pipeline run?"), and writes `demo_reports/demo_report.{md,json}` (gitignored). The Markdown report has an aggregate-metrics table (verdict accuracy, rule-citation accuracy, confidence-expectation rate, scenario coverage, verdict distribution, average confidence), a results-at-a-glance table, and per-clip detail. `--strict-real`, `--clip-id`, `--limit`, `--provider`, `--detector` all work as before.
+
+`backend/demo_clips/soccer_manifest.json` (Sprint 10) is the matching curated **soccer** dataset: 7 scenarios (foul, offside, handball, penalty, red card, yellow card, goal), same schema, `expected_rule_id`s keyed to `rules/soccer_rules.py`. Run it with `python scripts/run_demo_suite.py --manifest demo_clips/soccer_manifest.json`.
 
 The checked-in `demo_clips/*.mp4` are **placeholders** (a valid MP4 header, no footage) so the suite runs anywhere; real footage is dropped at those paths for a live demo. Adding a scenario = one manifest entry (+ a clip file); the runner and report pick it up automatically.
 
@@ -198,7 +208,7 @@ backend/evaluation/
                 # matrices, per-class tables, calibration bins, latency
 ```
 
-**Datasets**: a JSON array of rows with `clip_id`, `sport`, `ground_truth_verdict` (required) and optional `video_path` / `original_call` (used to drive the pipeline). `data/eval/labeled_clips.example.json` is a 3-clip smoke set; `data/eval/benchmark_basketball.json` is the 10-scenario benchmark derived from the demo dataset.
+**Datasets**: a JSON array of rows with `clip_id`, `sport`, `ground_truth_verdict` (required) and optional `video_path` / `original_call` (used to drive the pipeline). `data/eval/labeled_clips.example.json` is a 3-clip smoke set; `data/eval/benchmark_basketball.json` is the 10-scenario basketball benchmark and `data/eval/benchmark_soccer.json` (Sprint 10) is the 7-scenario soccer benchmark, both derived from the demo datasets.
 
 **Metrics**: overall accuracy, per-class + macro + micro precision/recall/F1, confusion matrix, Cohen's kappa, confidence calibration (reliability bins + ECE), and inference latency (mean/p50/p95). **Provider comparison** runs the same dataset through `mock` | `anthropic` | `gemini` and tabulates the differences.
 
