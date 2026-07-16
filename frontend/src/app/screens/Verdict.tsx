@@ -11,7 +11,6 @@ import {
   Star,
   ThumbsDown,
   ThumbsUp,
-  Video,
   X,
 } from "lucide-react";
 import { getCachedVerdict, getCachedLocalVideoUrl, resolveApiUrl } from "../../lib/api";
@@ -19,6 +18,7 @@ import type { AnalyzeResponse, Verdict as VerdictType } from "../../lib/types";
 import { VERDICT_COLOR, VERDICT_LABEL } from "../../lib/types";
 import { sportEvidenceRows, sportLabel } from "../../lib/sportEvidence";
 import { isPreviewSport } from "../../lib/sports";
+import AiReasoningPanel from "../components/AiReasoningPanel";
 
 const clampPercent = (value: unknown, fallback: number) => {
   const number = Number(value);
@@ -197,51 +197,15 @@ export default function Verdict() {
         </div>
       </div>
 
-      {/* Video Player */}
-      <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-8 border-2 border-black/5">
-        <div className="aspect-video rounded-lg mb-4 overflow-hidden bg-black relative">
-          {clipSrc ? (
-            <video
-              src={clipSrc}
-              controls
-              playsInline
-              preload="metadata"
-              className="h-full w-full object-contain bg-black"
-            />
-          ) : (
-            <div className="h-full w-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center relative">
-              <div className="absolute inset-0 bg-black/20"></div>
-              <div className="relative z-10 text-center">
-                <Video className="mx-auto mb-3 h-20 w-20 text-white/80" strokeWidth={1.8} />
-                <p className="text-gray-600">Clip playback unavailable</p>
-              </div>
-            </div>
-          )}
-          <div className="absolute left-3 top-3 bg-black/70 text-white text-xs font-mono px-2 py-1 rounded">
-            REVIEW CLIP
-          </div>
-        </div>
-        {v.perception.moment_of_interest_seconds !== null && (
-          <div className="h-2 bg-gray-200 rounded-full relative">
-            <div
-              className="absolute top-0 bottom-0 w-1 rounded-full"
-              style={{
-                left: `${Math.min(95, v.perception.moment_of_interest_seconds * 10)}%`,
-                backgroundColor: banner.color,
-              }}
-            ></div>
-            <div
-              className="absolute -top-8 text-white text-xs px-2 py-1 rounded whitespace-nowrap"
-              style={{
-                left: `${Math.min(85, v.perception.moment_of_interest_seconds * 10)}%`,
-                backgroundColor: banner.color,
-              }}
-            >
-              ← Moment of call (~{v.perception.moment_of_interest_seconds.toFixed(1)}s)
-            </div>
-          </div>
-        )}
-      </div>
+      {/* AI Reasoning Overlay — video with tracked players/ball, impact zone,
+          movement arrows, confidence heatmap, possession + event timelines, and
+          key-frame navigation. */}
+      <AiReasoningPanel
+        data={data}
+        clipSrc={clipSrc}
+        fallbackImageSrc={keyMomentFrameSrc}
+        verdictColor={banner.color}
+      />
 
       {/* Key Moment Frame */}
       {data.key_moment && (
