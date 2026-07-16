@@ -1,29 +1,20 @@
-"""Minimal placeholder sport detail extractors (Phase 6).
+"""Fallback sport detail extractor (Phase 6).
 
-These return their sport's default details model and ignore detections for now
-(no sport-specific derivation authored yet), consistent with the empty rule
-datasets for these sports.
+Every real sport now owns its detail extractor in its plugin package:
+``sports/<sport>/extractor.py`` for basketball's split lives in
+``services/extractors/basketball.py``, while soccer (Sprint 10), hockey
+(Sprint 11), and lacrosse (Sprint 12) live under ``sports/<sport>/extractor.py``
+and are registered directly.
 
-Soccer (Sprint 10) and hockey (Sprint 11) graduated out of this module: their
-real extractors live in ``sports/soccer/extractor.py`` and
-``sports/hockey/extractor.py`` and are registered directly. Only lacrosse remains
-a placeholder here.
+Only the ``EmptyDetailExtractor`` fallback remains here — it yields a valid,
+empty details block for any sport with no configured extractor, so an
+unconfigured/unknown sport never crashes the response shape.
 """
 
 from __future__ import annotations
 
 from services.detectors.detection_models import RawDetections
-from services.perception_schema import (
-    EmptySportDetails,
-    LacrosseDetails,
-)
-
-
-class LacrosseDetailExtractor:
-    sport = "lacrosse"
-
-    def extract(self, detections: RawDetections | None, perception: dict) -> LacrosseDetails:
-        return LacrosseDetails()
+from services.perception_schema import EmptySportDetails
 
 
 class EmptyDetailExtractor:

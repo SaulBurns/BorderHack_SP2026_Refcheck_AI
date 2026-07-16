@@ -1,5 +1,6 @@
 from rules.basketball_rules import BASKETBALL_RULES
 from rules.hockey_rules import HOCKEY_RULES
+from rules.lacrosse_rules import LACROSSE_RULES
 from rules.soccer_rules import SOCCER_RULES
 
 SPORTS: dict[str, dict] = {
@@ -17,7 +18,7 @@ SPORTS: dict[str, dict] = {
     },
     "lacrosse": {
         "display_name": "Lacrosse",
-        "rules": {},
+        "rules": LACROSSE_RULES,
     },
 }
 

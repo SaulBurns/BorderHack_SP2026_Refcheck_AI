@@ -1,0 +1,8 @@
+[
+  { "clip_id": "lacrosse_illegal_body_check_01", "sport": "lacrosse", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/lacrosse_illegal_body_check_01.mp4", "original_call": "Illegal body check on a defenseless player (personal foul)", "notes": "illegal_body_check" },
+  { "clip_id": "lacrosse_slash_02", "sport": "lacrosse", "ground_truth_verdict": "bad_call", "video_path": "demo_clips/lacrosse_slash_02.mp4", "original_call": "Slashing on the pole check to the arm", "notes": "slash" },
+  { "clip_id": "lacrosse_push_03", "sport": "lacrosse", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/lacrosse_push_03.mp4", "original_call": "Pushing from behind on the ball carrier (technical foul)", "notes": "push" },
+  { "clip_id": "lacrosse_crease_violation_04", "sport": "lacrosse", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/lacrosse_crease_violation_04.mp4", "original_call": "Goal disallowed — attacker's foot in the crease", "notes": "crease_violation" },
+  { "clip_id": "lacrosse_offside_05", "sport": "lacrosse", "ground_truth_verdict": "fair_call", "video_path": "demo_clips/lacrosse_offside_05.mp4", "original_call": "Offside — too many players over the midline on the clear", "notes": "offside" },
+  { "clip_id": "lacrosse_loose_ball_push_06", "sport": "lacrosse", "ground_truth_verdict": "inconclusive", "video_path": "demo_clips/lacrosse_loose_ball_push_06.mp4", "original_call": "No call on the shove during the ground-ball scrum", "notes": "loose_ball_push" }
+]
