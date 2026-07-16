@@ -138,6 +138,14 @@ backend/services/ai/
 
 **Scope note:** the tracked-evidence layer is basketball-only for now (gated on `sport == "basketball"`); other sports get Claude-only perception, unchanged.
 
+### Demo suite & curated dataset
+
+`backend/demo_clips/manifest.json` is a curated basketball dataset: 10 officiating scenarios (charge, blocking foul, shooting foul, travel, double dribble, out of bounds, goaltending, illegal screen, verticality, loose-ball foul). Each entry carries `scenario`, `original_call`, metadata (`game_date`/`home_team`/`away_team`), an `expected_verdict`, an `expected_rule_id` (a `rules/basketball_rules.py` key, or `null` when no rule chunk backs that scenario yet), a human-readable `rule_citation`, an `expected_confidence` (`high`/`medium`/`low`), and `notes`. Only `clip_id`/`sport`/`video_path`/`original_call` are required — every added field is optional and backward compatible.
+
+`backend/scripts/run_demo_suite.py` runs the suite. Sponsors run it with zero arguments (`python scripts/run_demo_suite.py`) — `--manifest` defaults to `DEFAULT_MANIFEST` (the shipped manifest). It runs each clip through the **real** `analyze_clip` (reusing `demo_analyze.run_demo` / `_real_pipeline_ran` — one source of truth for "did the real pipeline run?"), and writes `demo_reports/demo_report.{md,json}` (gitignored). The Markdown report has an aggregate-metrics table (verdict accuracy, rule-citation accuracy, confidence-expectation rate, scenario coverage, verdict distribution, average confidence), a results-at-a-glance table, and per-clip detail. `--strict-real`, `--clip-id`, `--limit`, `--provider`, `--detector` all work as before.
+
+The checked-in `demo_clips/*.mp4` are **placeholders** (a valid MP4 header, no footage) so the suite runs anywhere; real footage is dropped at those paths for a live demo. Adding a scenario = one manifest entry (+ a clip file); the runner and report pick it up automatically.
+
 ### Frontend (`frontend/`)
 
 Next.js 15 App Router. Six screens in `src/app/screens/` — `Home`, `Upload`, `Verdict`, `Feed`, `Leaderboard`, `RefProfile` — each has a thin page wrapper in `src/app/<route>/page.tsx`.

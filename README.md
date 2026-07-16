@@ -310,6 +310,37 @@ http://localhost:8000/api/analyze
    - Inconclusive
 13. Frontend displays confidence, cited rule, reasoning, perception details, and adjudicator results.
 
+## Sponsor Demo Suite
+
+A curated basketball dataset drives a one-command demo. Run it from `backend/`:
+
+```bash
+python scripts/run_demo_suite.py
+```
+
+This loads `demo_clips/manifest.json` (10 officiating scenarios — charge, blocking
+foul, shooting foul, travel, double dribble, out of bounds, goaltending, illegal
+screen, verticality, loose-ball foul), runs every clip through the real
+`analyze_clip` pipeline, prints a per-clip summary, and writes a polished report to
+`demo_reports/demo_report.md` and `demo_reports/demo_report.json`.
+
+Each manifest entry carries metadata (teams, date), an expected verdict, a rule
+citation, a confidence expectation, and notes. The report aggregates verdict
+accuracy, rule-citation accuracy, confidence-expectation rate, scenario coverage,
+verdict distribution, and average confidence.
+
+```bash
+# Real pipeline (needs ANTHROPIC_API_KEY + ffmpeg); refuse to degrade to mock:
+python scripts/run_demo_suite.py --provider anthropic --detector hybrid --strict-real
+# One scenario:
+python scripts/run_demo_suite.py --clip-id nba_goaltending_07
+```
+
+> The checked-in `demo_clips/*.mp4` are tiny **placeholders** so the suite runs
+> anywhere; drop real footage at those paths (or edit `video_path`) for a live
+> sponsor demo. Without `ANTHROPIC_API_KEY`/`ffmpeg` the suite runs transparently
+> in mock mode and labels every clip accordingly.
+
 ## Generated Files
 
 These are intentionally ignored by Git:
