@@ -18,9 +18,9 @@ from services.extractors.placeholders import (
     EmptyDetailExtractor,
     HockeyDetailExtractor,
     LacrosseDetailExtractor,
-    SoccerDetailExtractor,
 )
 from services.extractors.registry import ExtractorRegistry, get_extractor, registry
+from sports.soccer.extractor import SoccerDetailExtractor
 
 __all__ = [
     "SportDetailExtractor",

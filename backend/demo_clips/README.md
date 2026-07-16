@@ -1,11 +1,14 @@
-# Curated basketball demo clips
+# Curated demo clips
 
-`manifest.json` describes a small, curated suite of basketball clips used for
-sponsor-facing demos. Run it with:
+`manifest.json` describes a small, curated suite of **basketball** clips used for
+sponsor-facing demos. `soccer_manifest.json` (Sprint 10) is the matching
+**soccer** suite (7 scenarios: foul, offside, handball, penalty, red card, yellow
+card, goal). Run either with:
 
 ```bash
 cd backend
 python scripts/run_demo_suite.py --manifest demo_clips/manifest.json --provider mock
+python scripts/run_demo_suite.py --manifest demo_clips/soccer_manifest.json --provider mock
 ```
 
 ## ⚠️ Placeholder media

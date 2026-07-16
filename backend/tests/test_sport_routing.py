@@ -49,8 +49,13 @@ def test_get_rules_basketball_has_block_charge():
 def test_get_rules_hockey_returns_empty_dict():
     assert get_rules_for_sport("hockey") == {}
 
-def test_get_rules_soccer_returns_empty_dict():
-    assert get_rules_for_sport("soccer") == {}
+def test_get_rules_soccer_returns_seven_rules():
+    # Soccer is implemented (Sprint 10): foul, offside, handball, penalty,
+    # red card, yellow card, goal.
+    rules = get_rules_for_sport("soccer")
+    assert set(rules.keys()) == {
+        "foul", "offside", "handball", "penalty", "red_card", "yellow_card", "goal",
+    }
 
 def test_get_rules_lacrosse_returns_empty_dict():
     assert get_rules_for_sport("lacrosse") == {}
@@ -163,8 +168,10 @@ def test_rule_records_basketball_has_block_charge():
 def test_rule_records_hockey_returns_empty_list():
     assert _rule_records("hockey") == ()
 
-def test_rule_records_soccer_returns_empty_list():
-    assert _rule_records("soccer") == ()
+def test_rule_records_soccer_returns_seven_rules():
+    records = _rule_records("soccer")
+    assert len(records) == 7
+    assert "PENALTY" in [r["rule_id"] for r in records]
 
 def test_rule_records_lacrosse_returns_empty_list():
     assert _rule_records("lacrosse") == ()
