@@ -146,6 +146,39 @@ backend/services/ai/
 
 The checked-in `demo_clips/*.mp4` are **placeholders** (a valid MP4 header, no footage) so the suite runs anywhere; real footage is dropped at those paths for a live demo. Adding a scenario = one manifest entry (+ a clip file); the runner and report pick it up automatically.
 
+### Evaluation & benchmarking framework (`backend/evaluation/`)
+
+A standalone, offline-friendly harness that benchmarks verdict accuracy and compares providers. It is pure Python (no heavy pipeline import unless it actually drives `analyze_clip`), so metrics/report tests run fast.
+
+```
+backend/evaluation/
+  models.py     # LabeledClip / Prediction / EvaluationRecord, prediction_from_response
+  metrics.py    # accuracy, per_class (precision/recall/F1), macro/micro averages,
+                # confusion_matrix, cohens_kappa, reliability_bins, expected_calibration_error (ECE)
+  latency.py    # LatencySummary + summarize_latencies (mean/p50/p95/min/max)
+  runner.py     # EvaluationReport (from records) + evaluate()/evaluate_predictions()
+  cli.py        # collect_predictions() drives the pipeline for one provider (shared seam),
+                # run_evaluation(), and `python -m evaluation` main()
+  benchmark.py  # run_benchmark(dataset, providers, detector) -> BenchmarkReport (per-provider
+                # EvaluationReport + LatencySummary) for side-by-side comparison
+  report.py     # render_markdown() / render_html() — provider comparison table, confusion
+                # matrices, per-class tables, calibration bins, latency
+```
+
+**Datasets**: a JSON array of rows with `clip_id`, `sport`, `ground_truth_verdict` (required) and optional `video_path` / `original_call` (used to drive the pipeline). `data/eval/labeled_clips.example.json` is a 3-clip smoke set; `data/eval/benchmark_basketball.json` is the 10-scenario benchmark derived from the demo dataset.
+
+**Metrics**: overall accuracy, per-class + macro + micro precision/recall/F1, confusion matrix, Cohen's kappa, confidence calibration (reliability bins + ECE), and inference latency (mean/p50/p95). **Provider comparison** runs the same dataset through `mock` | `anthropic` | `gemini` and tabulates the differences.
+
+**CLI** (`python -m evaluation`):
+```bash
+# Single provider -> EvaluationReport JSON (Phase 9 schema, backward compatible):
+python -m evaluation --dataset data/eval/benchmark_basketball.json --provider mock --output report.json
+# Provider comparison -> BenchmarkReport JSON + Markdown + HTML:
+python -m evaluation --dataset data/eval/benchmark_basketball.json \
+    --providers mock,anthropic,gemini --output bench.json --md bench.md --html bench.html
+```
+Both modes flow through `run_benchmark`; single-provider still writes the bare `EvaluationReport` JSON. The pipeline is reached only through `cli.collect_predictions` (the same provider/env seam as everything else), and tests inject `analyze_fn` to run offline. Real providers without keys degrade to the mock fallback (surfaced in the run), so the benchmark always produces a report.
+
 ### Frontend (`frontend/`)
 
 Next.js 15 App Router. Six screens in `src/app/screens/` — `Home`, `Upload`, `Verdict`, `Feed`, `Leaderboard`, `RefProfile` — each has a thin page wrapper in `src/app/<route>/page.tsx`.
