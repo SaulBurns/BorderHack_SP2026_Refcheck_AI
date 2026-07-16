@@ -14,6 +14,7 @@ from __future__ import annotations
 from sports.base import Sport
 from sports.basketball import BasketballSport
 from sports.generic import GenericSport
+from sports.hockey import HockeySport
 from sports.soccer import SoccerSport
 
 
@@ -37,6 +38,7 @@ class SportRegistry:
 registry = SportRegistry()
 registry.register(BasketballSport())
 registry.register(SoccerSport())
+registry.register(HockeySport())
 
 
 def get_sport(name: str | None = None) -> Sport:

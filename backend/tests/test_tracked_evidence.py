@@ -244,7 +244,9 @@ def test_pipeline_threads_tracked_evidence(monkeypatch):
     # ...and the result carries it for confidence calibration downstream.
     assert result["tracked_evidence"]["defender_present"] is True
 
-def test_pipeline_no_tracked_evidence_for_non_basketball(monkeypatch):
+def test_pipeline_no_tracked_evidence_for_generic_sport(monkeypatch):
+    # Basketball, soccer, and hockey each own a tracked-evidence layer; a sport
+    # still on the GenericSport fallback (lacrosse) must produce none.
     from pathlib import Path
     from unittest.mock import MagicMock
 
@@ -268,7 +270,7 @@ def test_pipeline_no_tracked_evidence_for_non_basketball(monkeypatch):
     monkeypatch.setattr(ai, "_adjudicator_agent", lambda **k: {"verdict": "inconclusive", "confidence": 0.5})
 
     result = _run_four_agent_pipeline(
-        frame_paths=[Path("f.jpg")], file=MagicMock(), sport="hockey",
+        frame_paths=[Path("f.jpg")], file=MagicMock(), sport="lacrosse",
         level_of_play="", league="", original_call="", referee_name="", video_metadata=None,
     )
     assert captured["te"] is None

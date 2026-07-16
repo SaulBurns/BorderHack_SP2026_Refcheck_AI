@@ -3,8 +3,8 @@
 Public API:
     SportDetailExtractor      - the extractor Protocol
     BasketballDetailExtractor - derives BasketballDetails from RawDetections
-    HockeyDetailExtractor     - placeholder
-    SoccerDetailExtractor     - placeholder
+    HockeyDetailExtractor     - derives HockeyDetails (sports/hockey/extractor.py)
+    SoccerDetailExtractor     - derives SoccerDetails (sports/soccer/extractor.py)
     LacrosseDetailExtractor   - placeholder
     EmptyDetailExtractor      - fallback for unconfigured sports
     ExtractorRegistry         - sport -> extractor class registry
@@ -16,10 +16,10 @@ from services.extractors.base import SportDetailExtractor
 from services.extractors.basketball import BasketballDetailExtractor
 from services.extractors.placeholders import (
     EmptyDetailExtractor,
-    HockeyDetailExtractor,
     LacrosseDetailExtractor,
 )
 from services.extractors.registry import ExtractorRegistry, get_extractor, registry
+from sports.hockey.extractor import HockeyDetailExtractor
 from sports.soccer.extractor import SoccerDetailExtractor
 
 __all__ = [

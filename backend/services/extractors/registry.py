@@ -11,10 +11,10 @@ from services.extractors.base import SportDetailExtractor
 from services.extractors.basketball import BasketballDetailExtractor
 from services.extractors.placeholders import (
     EmptyDetailExtractor,
-    HockeyDetailExtractor,
     LacrosseDetailExtractor,
 )
 from services.registry import Registry
+from sports.hockey.extractor import HockeyDetailExtractor
 from sports.soccer.extractor import SoccerDetailExtractor
 
 

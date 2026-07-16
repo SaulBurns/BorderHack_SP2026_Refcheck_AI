@@ -46,8 +46,13 @@ def test_get_rules_basketball_has_block_charge():
     rules = get_rules_for_sport("basketball")
     assert "block_charge" in rules
 
-def test_get_rules_hockey_returns_empty_dict():
-    assert get_rules_for_sport("hockey") == {}
+def test_get_rules_hockey_returns_seven_rules():
+    # Hockey is implemented (Sprint 11): icing, offside, tripping, cross-checking,
+    # boarding, slashing, hooking.
+    rules = get_rules_for_sport("hockey")
+    assert set(rules.keys()) == {
+        "icing", "offside", "tripping", "cross_checking", "boarding", "slashing", "hooking",
+    }
 
 def test_get_rules_soccer_returns_seven_rules():
     # Soccer is implemented (Sprint 10): foul, offside, handball, penalty,
@@ -165,8 +170,10 @@ def test_rule_records_basketball_has_block_charge():
     ids = [r["rule_id"] for r in _rule_records("basketball")]
     assert "BLOCK_CHARGE" in ids
 
-def test_rule_records_hockey_returns_empty_list():
-    assert _rule_records("hockey") == ()
+def test_rule_records_hockey_returns_seven_rules():
+    records = _rule_records("hockey")
+    assert len(records) == 7
+    assert "BOARDING" in [r["rule_id"] for r in records]
 
 def test_rule_records_soccer_returns_seven_rules():
     records = _rule_records("soccer")
@@ -194,8 +201,13 @@ def test_retrieve_rules_basketball_returns_block_charge_first_for_blocking_query
     assert 1 <= len(rules) <= 5
     assert rules[0]["rule_id"] == "BLOCK_CHARGE"
 
-def test_retrieve_rules_hockey_returns_empty_list():
-    rules = _retrieve_rules("hockey slashing high stick", _MINIMAL_PERCEPTION, "hockey")
+def test_retrieve_rules_hockey_ranks_slashing_for_slashing_query():
+    rules = _retrieve_rules("slashing swing stick chop hands", _MINIMAL_PERCEPTION, "hockey")
+    assert 1 <= len(rules) <= 5
+    assert rules[0]["rule_id"] == "SLASHING"
+
+def test_retrieve_rules_lacrosse_returns_empty_list():
+    rules = _retrieve_rules("lacrosse cross-check slashing", _MINIMAL_PERCEPTION, "lacrosse")
     assert rules == []
 
 def test_retrieve_rules_basketball_preserves_existing_behavior():
