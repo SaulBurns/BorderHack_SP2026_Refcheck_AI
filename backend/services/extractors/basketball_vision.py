@@ -1,8 +1,10 @@
 """Basketball vision utilities (Phase 8).
 
 Pure, framework-free functions that derive basketball-specific signals from a
-detector's `RawDetections`: player tracking, ball-possession transitions,
-movement-direction estimation, and primary-defender identification.
+detector's `RawDetections`: player tracking, ball tracking, ball-possession
+transitions, movement-direction estimation, and primary-defender identification.
+Possession, timeline, and defender identification share a single per-frame scan
+(`_scan_controllers`) so the controlling player is computed only once per clip.
 
 Each function returns None / empty / a sentinel when the detections are
 insufficient, so the caller can fall back to perception-derived values.
@@ -90,35 +92,59 @@ def track_players(detections: RawDetections) -> dict[int, list[tuple[int, Boundi
     return tracks
 
 
-def possession_status(detections: RawDetections) -> str | None:
-    """Derive offensive_control_status from ball possession across frames.
+def track_ball(detections: RawDetections) -> list[tuple[int, BoundingBox]]:
+    """Per-frame ball position (the primary ball) for every frame that has one.
 
-    Returns None when no ball is detected (preserve perception value).
+    Sorted by frame index. Used to derive the ball's own movement direction —
+    independent of any player — so the adjudicator can see where the ball went
+    even when the ball itself is untracked (no stable track_id).
     """
-    saw_ball = False
-    controlled_any = False
-    controlled_track_ids: list[int | None] = []
-    for frame in detections.frames:
-        if not _balls(frame):
-            continue
-        saw_ball = True
-        controller = _controlling_person(frame)
-        if controller is not None:
-            controlled_any = True
-            controlled_track_ids.append(controller.track_id)
+    trajectory = [
+        (frame.frame_index, _balls(frame)[0].bbox)
+        for frame in detections.frames
+        if _balls(frame)
+    ]
+    trajectory.sort(key=lambda item: item[0])
+    return trajectory
 
-    if not saw_ball:
+
+def _scan_controllers(
+    detections: RawDetections,
+) -> list[tuple[FrameDetections, DetectionObject | None]]:
+    """Single pass: for every ball-bearing frame, its controlling person (or None).
+
+    This is the one place `_controlling_person` is evaluated per frame; possession,
+    the possession timeline, and defender identification all derive from this list
+    instead of re-scanning the detections. Frames without a ball are omitted (they
+    never have a controller), matching the legacy per-function behavior.
+    """
+    return [(frame, _controlling_person(frame)) for frame in detections.frames if _balls(frame)]
+
+
+def _possession_from_controllers(
+    scan: list[tuple[FrameDetections, DetectionObject | None]],
+) -> str | None:
+    """offensive_control_status from a precomputed controller scan (None if no ball)."""
+    if not scan:
         return None
-
-    real_ids = [tid for tid in controlled_track_ids if tid is not None]
+    controllers = [controller for _, controller in scan]
+    real_ids = [c.track_id for c in controllers if c is not None and c.track_id is not None]
     distinct = set(real_ids)
     if len(distinct) >= 2:
         return "passing"
     if real_ids and any(real_ids.count(tid) >= 2 for tid in distinct):
         return "dribbling"
-    if controlled_any:
+    if any(c is not None for c in controllers):
         return "gathered"
     return "loose_ball"
+
+
+def possession_status(detections: RawDetections) -> str | None:
+    """Derive offensive_control_status from ball possession across frames.
+
+    Returns None when no ball is detected (preserve perception value).
+    """
+    return _possession_from_controllers(_scan_controllers(detections))
 
 
 def _direction_label(dx: float, dy: float) -> str:
@@ -159,14 +185,15 @@ def trajectory_movement(trajectory: list[tuple[int, BoundingBox]]) -> str | None
     return _direction_label(last_x - first_x, last_y - first_y)
 
 
-def identify_primary_defender(detections: RawDetections) -> tuple[int | None, bool]:
-    """Find the defender nearest the ball handler in a controlled frame.
+def _defender_from_controllers(
+    scan: list[tuple[FrameDetections, DetectionObject | None]],
+) -> tuple[int | None, bool]:
+    """Nearest defender to the ball handler in the first controlled frame.
 
-    Returns (defender_track_id, found). track_id may be None even when found
-    (defender present but untracked).
+    Mirrors the legacy scan exactly: the first ball frame whose controller also
+    has at least one other person present wins.
     """
-    for frame in detections.frames:
-        handler = _controlling_person(frame)
+    for frame, handler in scan:
         if handler is None:
             continue
         others = [o for o in _persons(frame) if o is not handler]
@@ -177,10 +204,20 @@ def identify_primary_defender(detections: RawDetections) -> tuple[int | None, bo
     return None, False
 
 
+def identify_primary_defender(detections: RawDetections) -> tuple[int | None, bool]:
+    """Find the defender nearest the ball handler in a controlled frame.
+
+    Returns (defender_track_id, found). track_id may be None even when found
+    (defender present but untracked).
+    """
+    return _defender_from_controllers(_scan_controllers(detections))
+
+
 def analyze_basketball(detections: RawDetections) -> BasketballVisionFeatures:
-    """Derive all available basketball features from detections."""
-    control = possession_status(detections)
-    defender_track_id, defender_found = identify_primary_defender(detections)
+    """Derive all available basketball features from detections (single scan)."""
+    scan = _scan_controllers(detections)
+    control = _possession_from_controllers(scan)
+    defender_track_id, defender_found = _defender_from_controllers(scan)
     primary = "primary" if defender_found else None
 
     moving = None
@@ -196,21 +233,17 @@ def analyze_basketball(detections: RawDetections) -> BasketballVisionFeatures:
     )
 
 
-def _controller_track_id(frame: FrameDetections) -> int | None:
-    controller = _controlling_person(frame)
-    return controller.track_id if controller is not None else None
-
-
-def _possession_timeline(detections: RawDetections) -> list[dict]:
-    """Per-frame ball-controller identity for every frame that has a ball."""
-    timeline: list[dict] = []
-    for frame in detections.frames:
-        if not _balls(frame):
-            continue
-        timeline.append(
-            {"frame_index": frame.frame_index, "controller_track_id": _controller_track_id(frame)}
-        )
-    return timeline
+def _timeline_from_controllers(
+    scan: list[tuple[FrameDetections, DetectionObject | None]],
+) -> list[dict]:
+    """Per-frame ball-controller identity, derived from the shared scan."""
+    return [
+        {
+            "frame_index": frame.frame_index,
+            "controller_track_id": controller.track_id if controller is not None else None,
+        }
+        for frame, controller in scan
+    ]
 
 
 def _possession_changes(timeline: list[dict]) -> int:
@@ -276,22 +309,25 @@ def summarize_tracked_evidence(detections: RawDetections | None) -> dict | None:
         return None
 
     frames_total = len(detections.frames)
-    frames_with_ball = sum(1 for frame in detections.frames if _balls(frame))
     tracks = track_players(detections)
     players_tracked = len(tracks)
 
-    timeline = _possession_timeline(detections)
+    # One scan over ball frames; possession, timeline, and defender all reuse it.
+    scan = _scan_controllers(detections)
+    frames_with_ball = len(scan)
+    timeline = _timeline_from_controllers(scan)
     ball_handler_track_id, ball_handler_control_frames = _dominant_controller(timeline)
-    defender_track_id, defender_present = identify_primary_defender(detections)
+    defender_track_id, defender_present = _defender_from_controllers(scan)
 
     handler_trajectory = tracks.get(ball_handler_track_id) if ball_handler_track_id is not None else None
     defender_trajectory = tracks.get(defender_track_id) if defender_track_id is not None else None
+    ball_trajectory = track_ball(detections)
 
     return {
         "frames_total": frames_total,
         "frames_with_ball": frames_with_ball,
         "players_tracked": players_tracked,
-        "possession_summary": possession_status(detections),
+        "possession_summary": _possession_from_controllers(scan),
         "possession_timeline": timeline,
         "possession_changes": _possession_changes(timeline),
         "ball_handler_track_id": ball_handler_track_id,
@@ -300,6 +336,9 @@ def summarize_tracked_evidence(detections: RawDetections | None) -> dict | None:
         "defender_track_id": defender_track_id,
         "defender_present": defender_present,
         "defender_movement": trajectory_movement(defender_trajectory) if defender_trajectory else None,
+        # Ball's own path across frames (independent of any player); None when the
+        # ball appears in fewer than two frames.
+        "ball_movement": trajectory_movement(ball_trajectory) if len(ball_trajectory) >= 2 else None,
         "tracking_confidence": _tracking_confidence(
             frames_total=frames_total,
             frames_with_ball=frames_with_ball,
