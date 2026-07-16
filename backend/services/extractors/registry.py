@@ -9,12 +9,10 @@ from __future__ import annotations
 
 from services.extractors.base import SportDetailExtractor
 from services.extractors.basketball import BasketballDetailExtractor
-from services.extractors.placeholders import (
-    EmptyDetailExtractor,
-    LacrosseDetailExtractor,
-)
+from services.extractors.placeholders import EmptyDetailExtractor
 from services.registry import Registry
 from sports.hockey.extractor import HockeyDetailExtractor
+from sports.lacrosse.extractor import LacrosseDetailExtractor
 from sports.soccer.extractor import SoccerDetailExtractor
 
 

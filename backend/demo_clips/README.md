@@ -1,17 +1,19 @@
 # Curated demo clips
 
 `manifest.json` describes a small, curated suite of **basketball** clips used for
-sponsor-facing demos. `soccer_manifest.json` (Sprint 10) is the matching
-**soccer** suite (7 scenarios: foul, offside, handball, penalty, red card, yellow
-card, goal) and `hockey_manifest.json` (Sprint 11) the **hockey** suite (7
-scenarios: icing, offside, tripping, cross-checking, boarding, slashing, hooking).
-Run any of them with:
+sponsor-facing demos. Each other sport ships its own suite: `soccer_manifest.json`
+(Sprint 10 — foul, offside, handball, penalty, red card, yellow card, goal),
+`hockey_manifest.json` (Sprint 11 — icing, offside, tripping, cross-checking,
+boarding, slashing, hooking), and `lacrosse_manifest.json` (Sprint 12 — illegal
+body check, slash, push, crease violation, offside, loose-ball push). Run any of
+them with:
 
 ```bash
 cd backend
 python scripts/run_demo_suite.py --manifest demo_clips/manifest.json --provider mock
 python scripts/run_demo_suite.py --manifest demo_clips/soccer_manifest.json --provider mock
 python scripts/run_demo_suite.py --manifest demo_clips/hockey_manifest.json --provider mock
+python scripts/run_demo_suite.py --manifest demo_clips/lacrosse_manifest.json --provider mock
 ```
 
 ## ⚠️ Placeholder media

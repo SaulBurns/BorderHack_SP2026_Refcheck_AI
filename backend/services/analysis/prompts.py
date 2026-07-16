@@ -11,14 +11,20 @@ the stub call in the corresponding dict below.
 
 from __future__ import annotations
 
-# Soccer (Sprint 10) and hockey (Sprint 11) own their prompt strings in their
-# plugins; the catalog imports them so the pipeline's `_get_*_prompt(sport)`
-# selectors resolve to the real prompts instead of the generic stubs. Each import
-# is a pure string module (no `services` imports), so it introduces no cycle.
+# Soccer (Sprint 10), hockey (Sprint 11), and lacrosse (Sprint 12) own their
+# prompt strings in their plugins; the catalog imports them so the pipeline's
+# `_get_*_prompt(sport)` selectors resolve to the real prompts instead of the
+# generic stubs. Each import is a pure string module (no `services` imports), so
+# it introduces no cycle.
 from sports.hockey.prompts import (
     HOCKEY_ADJUDICATOR_PROMPT,
     HOCKEY_PERCEPTION_PROMPT,
     HOCKEY_RETRIEVAL_PROMPT,
+)
+from sports.lacrosse.prompts import (
+    LACROSSE_ADJUDICATOR_PROMPT,
+    LACROSSE_PERCEPTION_PROMPT,
+    LACROSSE_RETRIEVAL_PROMPT,
 )
 from sports.soccer.prompts import (
     SOCCER_ADJUDICATOR_PROMPT,
@@ -310,21 +316,21 @@ _PERCEPTION_PROMPTS: dict[str, str] = {
     "basketball": _BASKETBALL_PERCEPTION_PROMPT,
     "hockey":     HOCKEY_PERCEPTION_PROMPT,
     "soccer":     SOCCER_PERCEPTION_PROMPT,
-    "lacrosse":   _make_stub_perception_prompt("lacrosse"),
+    "lacrosse":   LACROSSE_PERCEPTION_PROMPT,
 }
 
 _RETRIEVAL_PROMPTS: dict[str, str] = {
     "basketball": _BASKETBALL_RETRIEVAL_PROMPT,
     "hockey":     HOCKEY_RETRIEVAL_PROMPT,
     "soccer":     SOCCER_RETRIEVAL_PROMPT,
-    "lacrosse":   _make_stub_retrieval_prompt("lacrosse"),
+    "lacrosse":   LACROSSE_RETRIEVAL_PROMPT,
 }
 
 _ADJUDICATOR_PROMPTS: dict[str, str] = {
     "basketball": _BASKETBALL_ADJUDICATOR_PROMPT,
     "hockey":     HOCKEY_ADJUDICATOR_PROMPT,
     "soccer":     SOCCER_ADJUDICATOR_PROMPT,
-    "lacrosse":   _make_stub_adjudicator_prompt("lacrosse"),
+    "lacrosse":   LACROSSE_ADJUDICATOR_PROMPT,
 }
 
 

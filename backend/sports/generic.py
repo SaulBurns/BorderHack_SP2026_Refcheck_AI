@@ -1,9 +1,10 @@
 """Generic sport plugin — the fallback for sports without a full implementation.
 
-Reproduces the pre-plugin behavior for any unconfigured sport (lacrosse today, or
-anything else): Claude-only perception via the shared prompt
-catalog's stub prompts, no rule boosts, no tracking evidence, and no game
-context. The placeholder extractor still yields a valid (empty) sport-details
+As of Sprint 12 every shipped sport (basketball, soccer, hockey, lacrosse) has a
+full plugin, so this fallback now serves only *unregistered* sports (an arbitrary
+sport string the registry does not know): Claude-only perception via the shared
+prompt catalog's stub prompts, no rule boosts, no tracking evidence, and no game
+context. The empty-detail extractor still yields a valid (empty) sport-details
 block, so the response shape is unchanged.
 """
 

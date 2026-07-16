@@ -62,8 +62,16 @@ def test_get_rules_soccer_returns_seven_rules():
         "foul", "offside", "handball", "penalty", "red_card", "yellow_card", "goal",
     }
 
-def test_get_rules_lacrosse_returns_empty_dict():
-    assert get_rules_for_sport("lacrosse") == {}
+def test_get_rules_lacrosse_returns_six_rules():
+    # Lacrosse is implemented (Sprint 12): illegal body check, slash, push,
+    # crease violation, offside, loose-ball push.
+    rules = get_rules_for_sport("lacrosse")
+    assert set(rules.keys()) == {
+        "illegal_body_check", "slash", "push", "crease_violation", "offside", "loose_ball_push",
+    }
+
+def test_get_rules_unregistered_sport_returns_empty_dict():
+    assert get_rules_for_sport("curling") == {}
 
 def test_get_rules_unknown_sport_returns_empty_dict():
     assert get_rules_for_sport("curling") == {}
@@ -180,8 +188,13 @@ def test_rule_records_soccer_returns_seven_rules():
     assert len(records) == 7
     assert "PENALTY" in [r["rule_id"] for r in records]
 
-def test_rule_records_lacrosse_returns_empty_list():
-    assert _rule_records("lacrosse") == ()
+def test_rule_records_lacrosse_returns_six_rules():
+    records = _rule_records("lacrosse")
+    assert len(records) == 6
+    assert "CREASE_VIOLATION" in [r["rule_id"] for r in records]
+
+def test_rule_records_unregistered_sport_returns_empty_list():
+    assert _rule_records("curling") == ()
 
 
 def test_retrieve_rules_basketball_returns_block_charge_first_for_blocking_query():
@@ -206,8 +219,13 @@ def test_retrieve_rules_hockey_ranks_slashing_for_slashing_query():
     assert 1 <= len(rules) <= 5
     assert rules[0]["rule_id"] == "SLASHING"
 
-def test_retrieve_rules_lacrosse_returns_empty_list():
-    rules = _retrieve_rules("lacrosse cross-check slashing", _MINIMAL_PERCEPTION, "lacrosse")
+def test_retrieve_rules_lacrosse_ranks_crease_for_crease_query():
+    rules = _retrieve_rules("crease violation dive goal crease goalie", _MINIMAL_PERCEPTION, "lacrosse")
+    assert 1 <= len(rules) <= 5
+    assert rules[0]["rule_id"] == "CREASE_VIOLATION"
+
+def test_retrieve_rules_unregistered_sport_returns_empty_list():
+    rules = _retrieve_rules("curling hammer takeout", _MINIMAL_PERCEPTION, "curling")
     assert rules == []
 
 def test_retrieve_rules_basketball_preserves_existing_behavior():

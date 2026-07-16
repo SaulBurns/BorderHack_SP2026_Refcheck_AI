@@ -27,7 +27,7 @@ python scripts/run_demo_suite.py            # 10 curated scenarios → metrics r
 
 - Frontend: Next.js 15 (App Router) — Verdict screen with an **AI reasoning overlay**
 - Backend: FastAPI — synchronous four-agent pipeline off the event loop
-- Sports are **plugins** (`backend/sports/`): each sport owns its prompts, rules, tracking, and game context behind a `Sport` interface; the pipeline never checks `sport == "basketball"`. **Basketball**, **soccer** (Sprint 10), and **hockey** (Sprint 11) ship as full plugins; lacrosse falls back to a generic Claude-only plugin. Adding a sport = one plugin package + one registry line.
+- Sports are **plugins** (`backend/sports/`): each sport owns its prompts, rules, tracking, and game context behind a `Sport` interface; the pipeline never checks `sport == "basketball"`. **Basketball**, **soccer** (Sprint 10), **hockey** (Sprint 11), and **lacrosse** (Sprint 12) all ship as full plugins; any unregistered sport falls back to a generic Claude-only plugin. Adding a sport = one plugin package + one registry line.
 - Analysis: ffmpeg frame extraction + provider-agnostic Claude/Gemini pipeline with mock fallback + optional YOLO tracking
 - Evaluation: offline benchmarking harness (accuracy/precision/recall/F1, calibration, latency, provider comparison)
 - Optional persistence: Supabase Postgres + Supabase Storage
@@ -359,13 +359,16 @@ python scripts/run_demo_suite.py --provider anthropic --detector hybrid --strict
 python scripts/run_demo_suite.py --clip-id nba_goaltending_07
 ```
 
-**Soccer** (Sprint 10) and **hockey** (Sprint 11) each ship their own curated
-7-scenario suite — soccer: foul, offside, handball, penalty, red card, yellow card,
-goal; hockey: icing, offside, tripping, cross-checking, boarding, slashing, hooking:
+**Soccer** (Sprint 10), **hockey** (Sprint 11), and **lacrosse** (Sprint 12) each
+ship their own curated suite — soccer: foul, offside, handball, penalty, red card,
+yellow card, goal; hockey: icing, offside, tripping, cross-checking, boarding,
+slashing, hooking; lacrosse: illegal body check, slash, push, crease violation,
+offside, loose-ball push:
 
 ```bash
 python scripts/run_demo_suite.py --manifest demo_clips/soccer_manifest.json
 python scripts/run_demo_suite.py --manifest demo_clips/hockey_manifest.json
+python scripts/run_demo_suite.py --manifest demo_clips/lacrosse_manifest.json
 ```
 
 > The checked-in `demo_clips/*.mp4` are tiny **placeholders** so the suite runs
@@ -373,11 +376,12 @@ python scripts/run_demo_suite.py --manifest demo_clips/hockey_manifest.json
 > sponsor demo. Without `ANTHROPIC_API_KEY`/`ffmpeg` the suite runs transparently
 > in mock mode and labels every clip accordingly.
 
-The evaluation harness has matching soccer and hockey benchmark datasets:
+The evaluation harness has matching soccer, hockey, and lacrosse benchmark datasets:
 
 ```bash
 python -m evaluation --dataset data/eval/benchmark_soccer.json --provider mock --output soccer_report.json
 python -m evaluation --dataset data/eval/benchmark_hockey.json --provider mock --output hockey_report.json
+python -m evaluation --dataset data/eval/benchmark_lacrosse.json --provider mock --output lacrosse_report.json
 ```
 
 ## Generated Files
