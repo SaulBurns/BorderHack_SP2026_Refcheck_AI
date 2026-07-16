@@ -1,49 +1,46 @@
-from rules.basketball_rules import BASKETBALL_RULES
-from rules.hockey_rules import HOCKEY_RULES
-from rules.lacrosse_rules import LACROSSE_RULES
-from rules.soccer_rules import SOCCER_RULES
+"""Sport configuration seams — now fully registry-driven.
 
-SPORTS: dict[str, dict] = {
-    "basketball": {
-        "display_name": "Basketball",
-        "rules": BASKETBALL_RULES,
-    },
-    "hockey": {
-        "display_name": "Hockey",
-        "rules": HOCKEY_RULES,
-    },
-    "soccer": {
-        "display_name": "Soccer",
-        "rules": SOCCER_RULES,
-    },
-    "lacrosse": {
-        "display_name": "Lacrosse",
-        "rules": LACROSSE_RULES,
-    },
-}
+The sport list, display names, and rule corpora are no longer a hardcoded table
+here: they are owned by the Sport plugins (`sports/<sport>/`) and resolved through
+the `SportRegistry`. This module keeps `normalize_sport()` /
+`get_rules_for_sport()` / `supported_sports()` as the stable seams the pipeline
+calls, each delegating to the registry so adding a sport never edits this file.
+"""
 
-SUPPORTED_SPORTS: frozenset[str] = frozenset(SPORTS)
+from __future__ import annotations
+
+
+def supported_sports() -> frozenset[str]:
+    """The set of registered sport names (registry-driven)."""
+    from sports import registry
+    return frozenset(registry.available())
+
+
+def sport_display_names() -> dict[str, str]:
+    """Map of registered sport name -> human-readable display name."""
+    from sports import get_sport
+    return {name: get_sport(name).display_name for name in supported_sports()}
 
 
 # NOTE: normalize_sport() and get_rules_for_sport() have different fallback behavior
 # by design. normalize_sport() always returns a valid sport key (falling back to
 # "basketball" for unknowns) and is called ONCE at the pipeline entry point.
-# get_rules_for_sport() returns {} for unimplemented sports and is called with
+# get_rules_for_sport() returns {} for unregistered sports and is called with
 # already-normalized values — it never sees unknown sport strings in production.
 
 
 def normalize_sport(sport: str | None) -> str:
-    """Lowercase and strip the value; return 'basketball' for unrecognized sports."""
+    """Lowercase and strip the value; return 'basketball' for unregistered sports."""
     normalized = sport.lower().strip() if sport else ""
-    return normalized if normalized in SPORTS else "basketball"
+    return normalized if normalized in supported_sports() else "basketball"
 
 
 def get_rules_for_sport(sport: str) -> dict:
-    """Return the rules dict for a sport.
+    """Return the rules corpus for a sport, resolved from its plugin.
 
-    Returns an empty dict for unimplemented sports (hockey, soccer, lacrosse)
-    and for unknown sport strings. Always call normalize_sport() before passing
-    sport to pipeline functions that use this function.
+    Returns an empty dict for unregistered sport strings (GenericSport). Always
+    call normalize_sport() before passing sport to pipeline functions that use
+    this function.
     """
-    normalized = sport.lower().strip() if sport else ""
-    return SPORTS.get(normalized, {}).get("rules", {})
+    from sports import get_sport
+    return get_sport(sport).rule_records()

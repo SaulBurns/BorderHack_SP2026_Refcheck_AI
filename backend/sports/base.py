@@ -20,10 +20,22 @@ from typing import Any
 
 
 class Sport(ABC):
-    """One sport's behavior, plugged into the pipeline via the SportRegistry."""
+    """One sport's behavior, plugged into the pipeline via the SportRegistry.
 
-    #: Normalized sport key (e.g. "basketball"). Matches rules.sport_config keys.
+    A ``Sport`` is fully self-contained: it owns its prompts, rule corpus + boosts,
+    detail extraction, detail schema, tracking evidence, and game context. The
+    generic pipeline and lookup functions (`get_rules_for_sport`, `_get_*_prompt`,
+    `get_extractor`, `get_sport_details_model`) resolve a plugin with
+    `get_sport(sport)` and delegate, so adding a sport requires only a
+    `sports/<sport>/` package plus one `SportRegistry.register(...)` call — no other
+    backend file changes.
+    """
+
+    #: Normalized sport key (e.g. "basketball").
     name: str
+
+    #: Human-readable label (e.g. "Basketball"). Defaults to a title-cased name.
+    display_name: str = ""
 
     # -- prompts (sport-specific perception + adjudication) -----------------
 
@@ -39,7 +51,15 @@ class Sport(ABC):
     def adjudicator_prompt(self) -> str:
         """System prompt for both adjudicators (framing is appended per-agent)."""
 
-    # -- rule retrieval -----------------------------------------------------
+    # -- rule corpus + retrieval --------------------------------------------
+
+    @abstractmethod
+    def rule_records(self) -> dict:
+        """The sport's rulebook corpus.
+
+        A mapping of ``rule_key -> {"call_type", "rule_applied", "summary", ...}``.
+        Return ``{}`` for a sport with no authored rules (GenericSport fallback).
+        """
 
     @abstractmethod
     def boost_rule_score(self, rule_id: str, haystack: str) -> int:
@@ -49,7 +69,23 @@ class Sport(ABC):
         keyword score untouched.
         """
 
-    # -- sport-details extraction -------------------------------------------
+    # -- sport-details extraction + schema ----------------------------------
+
+    @abstractmethod
+    def detail_extractor(self) -> Any:
+        """The sport's detail extractor (a `SportDetailExtractor`).
+
+        Resolved by the generic `get_extractor(sport)` seam. Return an
+        `EmptyDetailExtractor` for a sport with no authored extractor.
+        """
+
+    @abstractmethod
+    def details_model(self) -> Any:
+        """The sport's `SportDetails` subclass.
+
+        Resolved by the generic `get_sport_details_model(sport)` seam. Return
+        `EmptySportDetails` for a sport with no authored schema.
+        """
 
     @abstractmethod
     def sport_details(self, detections: Any, perception: dict) -> dict | None:

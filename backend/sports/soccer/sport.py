@@ -20,6 +20,7 @@ from sports.base import Sport
 
 class SoccerSport(Sport):
     name = "soccer"
+    display_name = "Soccer"
 
     def perception_prompt(self) -> str:
         from sports.soccer.prompts import perception_prompt
@@ -33,15 +34,26 @@ class SoccerSport(Sport):
         from sports.soccer.prompts import adjudicator_prompt
         return adjudicator_prompt()
 
+    def rule_records(self) -> dict:
+        from rules.soccer_rules import SOCCER_RULES
+        return SOCCER_RULES
+
     def boost_rule_score(self, rule_id: str, haystack: str) -> int:
         from sports.soccer.rules import boost_rule_score
         return boost_rule_score(rule_id, haystack)
 
+    def detail_extractor(self) -> Any:
+        from sports.soccer.extractor import SoccerDetailExtractor
+        return SoccerDetailExtractor()
+
+    def details_model(self) -> Any:
+        from services.perception_schema import SoccerDetails
+        return SoccerDetails
+
     def sport_details(self, detections: Any, perception: dict) -> dict | None:
         if detections is None:
             return None
-        from services.extractors import get_extractor
-        return get_extractor("soccer").extract(detections, perception).model_dump()
+        return self.detail_extractor().extract(detections, perception).model_dump()
 
     def tracked_evidence(self, detections: Any) -> dict | None:
         if detections is None:

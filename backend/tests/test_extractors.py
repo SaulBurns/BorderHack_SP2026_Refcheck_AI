@@ -14,13 +14,11 @@ from services.detectors.detection_models import (
 from services.extractors import (
     BasketballDetailExtractor,
     EmptyDetailExtractor,
-    ExtractorRegistry,
     HockeyDetailExtractor,
     LacrosseDetailExtractor,
     SoccerDetailExtractor,
     SportDetailExtractor,
     get_extractor,
-    registry,
 )
 from services.perception_schema import (
     BasketballDetails,
@@ -67,15 +65,12 @@ def test_registry_is_case_insensitive():
     assert isinstance(get_extractor("Basketball"), BasketballDetailExtractor)
     assert isinstance(get_extractor("  HOCKEY "), HockeyDetailExtractor)
 
-def test_registry_available_lists_four_sports():
-    assert registry.available() == ["basketball", "hockey", "lacrosse", "soccer"]
-
-def test_custom_registry_register_and_create():
-    reg = ExtractorRegistry()
-    reg.register("basketball", BasketballDetailExtractor)
-    assert isinstance(reg.create("basketball"), BasketballDetailExtractor)
-    assert reg.available() == ["basketball"]
-    assert isinstance(reg.create("unknown"), EmptyDetailExtractor)
+def test_get_extractor_resolves_each_registered_sport():
+    # Extractor resolution is registry-driven (delegates to the Sport plugin).
+    from rules.sport_config import supported_sports
+    from sports import get_sport
+    for name in supported_sports():
+        assert isinstance(get_extractor(name), type(get_sport(name).detail_extractor()))
 
 @pytest.mark.parametrize(
     "extractor_cls",

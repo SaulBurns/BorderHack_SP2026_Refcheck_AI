@@ -187,23 +187,14 @@ class LacrosseDetails(SportDetails):
     warding: bool = False
 
 
-# Keys must match keys in rules.sport_config.SPORTS. Mirrors the
-# `_PERCEPTION_PROMPTS` selector pattern in ai_analyzer.py.
-SPORT_DETAIL_MODELS: dict[str, type[SportDetails]] = {
-    "basketball": BasketballDetails,
-    "hockey": HockeyDetails,
-    "soccer": SoccerDetails,
-    "lacrosse": LacrosseDetails,
-}
-
-
 def get_sport_details_model(sport: str) -> type[SportDetails]:
-    """Return the SportDetails subclass for a sport.
+    """Return the SportDetails subclass for a sport, resolved from its plugin.
 
-    Case-insensitive. Unknown/unconfigured sports fall back to
-    `EmptySportDetails` (never raises), matching `_get_perception_prompt`'s
-    stub-fallback behavior. Callers normalize sport upstream via
-    `rules.sport_config.normalize_sport`.
+    Delegates to `get_sport(sport).details_model()` (registry-driven), so there is
+    no hardcoded sport->model table here. Case-insensitive (the registry
+    normalizes); unregistered sports resolve through `GenericSport`, which returns
+    `EmptySportDetails` (never raises). A lazy import avoids the sports<->services
+    import cycle.
     """
-    normalized = sport.lower().strip() if sport else ""
-    return SPORT_DETAIL_MODELS.get(normalized, EmptySportDetails)
+    from sports import get_sport
+    return get_sport(sport).details_model()

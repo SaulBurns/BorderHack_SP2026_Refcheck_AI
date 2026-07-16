@@ -16,28 +16,40 @@ from sports.base import Sport
 
 class BasketballSport(Sport):
     name = "basketball"
+    display_name = "Basketball"
 
     def perception_prompt(self) -> str:
-        from services.analysis.prompts import _get_perception_prompt
-        return _get_perception_prompt("basketball")
+        from sports.basketball.prompts import perception_prompt
+        return perception_prompt()
 
     def retrieval_prompt(self) -> str:
-        from services.analysis.prompts import _get_retrieval_prompt
-        return _get_retrieval_prompt("basketball")
+        from sports.basketball.prompts import retrieval_prompt
+        return retrieval_prompt()
 
     def adjudicator_prompt(self) -> str:
-        from services.analysis.prompts import _get_adjudicator_prompt
-        return _get_adjudicator_prompt("basketball")
+        from sports.basketball.prompts import adjudicator_prompt
+        return adjudicator_prompt()
+
+    def rule_records(self) -> dict:
+        from rules.basketball_rules import BASKETBALL_RULES
+        return BASKETBALL_RULES
 
     def boost_rule_score(self, rule_id: str, haystack: str) -> int:
         from sports.basketball.rules import boost_rule_score
         return boost_rule_score(rule_id, haystack)
 
+    def detail_extractor(self) -> Any:
+        from services.extractors.basketball import BasketballDetailExtractor
+        return BasketballDetailExtractor()
+
+    def details_model(self) -> Any:
+        from services.perception_schema import BasketballDetails
+        return BasketballDetails
+
     def sport_details(self, detections: Any, perception: dict) -> dict | None:
         if detections is None:
             return None
-        from services.extractors import get_extractor
-        return get_extractor("basketball").extract(detections, perception).model_dump()
+        return self.detail_extractor().extract(detections, perception).model_dump()
 
     def tracked_evidence(self, detections: Any) -> dict | None:
         if detections is None:

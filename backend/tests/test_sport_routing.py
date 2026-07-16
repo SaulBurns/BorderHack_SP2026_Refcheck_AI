@@ -5,7 +5,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
-from rules.sport_config import normalize_sport, get_rules_for_sport, SPORTS
+from rules.sport_config import normalize_sport, get_rules_for_sport, supported_sports
 
 
 # ---------------------------------------------------------------------------
@@ -78,19 +78,21 @@ def test_get_rules_unknown_sport_returns_empty_dict():
 
 
 # ---------------------------------------------------------------------------
-# SPORTS registry shape
+# Registered sports (registry-driven, no hardcoded SPORTS table)
 # ---------------------------------------------------------------------------
 
-def test_sports_has_exactly_four_entries():
-    assert set(SPORTS.keys()) == {"basketball", "hockey", "soccer", "lacrosse"}
+def test_supported_sports_lists_the_four_shipped_sports():
+    assert supported_sports() == frozenset({"basketball", "hockey", "soccer", "lacrosse"})
 
-def test_sports_entries_have_display_name():
-    for key, config in SPORTS.items():
-        assert "display_name" in config, f"{key} missing display_name"
+def test_each_registered_sport_has_a_display_name():
+    from sports import get_sport
+    for name in supported_sports():
+        assert get_sport(name).display_name, f"{name} missing display_name"
 
-def test_sports_entries_have_rules_key():
-    for key, config in SPORTS.items():
-        assert "rules" in config, f"{key} missing rules key"
+def test_each_registered_sport_returns_a_rule_records_dict():
+    from sports import get_sport
+    for name in supported_sports():
+        assert isinstance(get_sport(name).rule_records(), dict)
 
 
 # ---------------------------------------------------------------------------

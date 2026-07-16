@@ -20,6 +20,7 @@ from sports.base import Sport
 
 class LacrosseSport(Sport):
     name = "lacrosse"
+    display_name = "Lacrosse"
 
     def perception_prompt(self) -> str:
         from sports.lacrosse.prompts import perception_prompt
@@ -33,15 +34,26 @@ class LacrosseSport(Sport):
         from sports.lacrosse.prompts import adjudicator_prompt
         return adjudicator_prompt()
 
+    def rule_records(self) -> dict:
+        from rules.lacrosse_rules import LACROSSE_RULES
+        return LACROSSE_RULES
+
     def boost_rule_score(self, rule_id: str, haystack: str) -> int:
         from sports.lacrosse.rules import boost_rule_score
         return boost_rule_score(rule_id, haystack)
 
+    def detail_extractor(self) -> Any:
+        from sports.lacrosse.extractor import LacrosseDetailExtractor
+        return LacrosseDetailExtractor()
+
+    def details_model(self) -> Any:
+        from services.perception_schema import LacrosseDetails
+        return LacrosseDetails
+
     def sport_details(self, detections: Any, perception: dict) -> dict | None:
         if detections is None:
             return None
-        from services.extractors import get_extractor
-        return get_extractor("lacrosse").extract(detections, perception).model_dump()
+        return self.detail_extractor().extract(detections, perception).model_dump()
 
     def tracked_evidence(self, detections: Any) -> dict | None:
         if detections is None:
