@@ -175,6 +175,34 @@ export interface GameContext {
   candidates?: GameCandidate[];
 }
 
+// --- Analysis diagnostics (already returned by the backend; mirrors the dict in
+// services/ai_analyzer._diagnostics_payload). Optional so older responses parse. ---
+
+export interface Diagnostics {
+  schema_version?: number;
+  provider_used?: string;
+  detector?: string;
+  fallback_reason?: string | null;
+  frames_analyzed?: number;
+  detections_present?: boolean;
+  sport_details_source?: string;
+  // Compact detection counts.
+  detection_frame_count?: number;
+  detection_object_count?: number;
+  tracking_present?: boolean;
+  tracked_object_count?: number;
+  player_count?: number;
+  ball_present?: boolean;
+  // Sprint 2 — how YOLO tracking influenced the verdict.
+  yolo_influenced?: boolean;
+  tracked_evidence_present?: boolean;
+  tracking_confidence?: number | null;
+  possession_summary?: string | null;
+  defender_tracked?: boolean;
+  ball_trajectory_present?: boolean;
+  influenced_reconciliation?: boolean;
+}
+
 export interface AnalyzeResponse {
   verdict: FinalVerdict;
   clip_id: string;
@@ -188,6 +216,8 @@ export interface AnalyzeResponse {
   };
   // Additive; present only for basketball clips.
   game_context?: GameContext;
+  // Additive; the backend already includes this block in every /api/analyze reply.
+  diagnostics?: Diagnostics;
 }
 
 // Display helpers
