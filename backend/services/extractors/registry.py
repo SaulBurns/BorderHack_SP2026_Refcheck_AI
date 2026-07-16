@@ -15,24 +15,14 @@ from services.extractors.placeholders import (
     LacrosseDetailExtractor,
     SoccerDetailExtractor,
 )
+from services.registry import Registry
 
 
-class ExtractorRegistry:
-    """Maps sport keys to their detail-extractor classes."""
+class ExtractorRegistry(Registry[SportDetailExtractor]):
+    """Maps sport keys to detail-extractor classes (unknown -> EmptyDetailExtractor)."""
 
     def __init__(self) -> None:
-        self._extractors: dict[str, type[SportDetailExtractor]] = {}
-
-    def register(self, sport: str, extractor_cls: type[SportDetailExtractor]) -> None:
-        self._extractors[sport.lower().strip()] = extractor_cls
-
-    def available(self) -> list[str]:
-        return sorted(self._extractors)
-
-    def create(self, sport: str | None = None) -> SportDetailExtractor:
-        key = (sport or "").lower().strip()
-        extractor_cls = self._extractors.get(key, EmptyDetailExtractor)
-        return extractor_cls()
+        super().__init__("extractor", fallback=EmptyDetailExtractor)
 
 
 registry = ExtractorRegistry()

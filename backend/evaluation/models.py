@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-VERDICTS = ("fair_call", "bad_call", "inconclusive")
+# Canonical verdict vocabulary (single source of truth). Imported from services
+# rather than re-typed; services.verdicts is a pure, dependency-free constants
+# module so the evaluation framework stays offline-friendly.
+from services.verdicts import VERDICTS
 
 
 class EvaluationError(ValueError):

@@ -25,6 +25,7 @@ from typing import Callable
 
 from evaluation.models import LabeledClip, Prediction, prediction_from_response
 from evaluation.runner import EvaluationReport, evaluate_predictions, load_labeled_clips
+from services import config
 
 PROVIDERS = ("anthropic", "gemini", "mock")
 DETECTORS = ("claude_vision", "hybrid", "yolov8")
@@ -117,8 +118,8 @@ def _load_dataset(dataset_path: str | Path) -> tuple[list[LabeledClip], dict[str
 
 def run_evaluation(
     dataset_path: str | Path,
-    provider: str = "mock",
-    detector: str = "claude_vision",
+    provider: str = config.DEFAULT_PROVIDER,
+    detector: str = config.DEFAULT_DETECTOR,
     analyze_fn: AnalyzeFn | None = None,
 ) -> EvaluationReport:
     """Run the pipeline over a labeled dataset and compute an EvaluationReport."""
@@ -140,14 +141,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dataset", required=True, help="Path to the labeled dataset JSON.")
     parser.add_argument("--output", required=True, help="Path to write the report JSON.")
-    parser.add_argument("--provider", default="mock", choices=PROVIDERS, help="Single AI provider.")
+    parser.add_argument("--provider", default=config.DEFAULT_PROVIDER, choices=PROVIDERS, help="Single AI provider.")
     parser.add_argument(
         "--providers",
         default=None,
         help="Comma-separated providers for a comparison benchmark, e.g. mock,anthropic,gemini.",
     )
     parser.add_argument(
-        "--detector", default="claude_vision", choices=DETECTORS, help="Perception detector."
+        "--detector", default=config.DEFAULT_DETECTOR, choices=DETECTORS, help="Perception detector."
     )
     parser.add_argument("--md", default=None, help="Optional path to write a Markdown report.")
     parser.add_argument("--html", default=None, help="Optional path to write an HTML report.")

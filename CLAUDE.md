@@ -11,22 +11,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 python3.11 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Build FAISS index (required before first run; produces data/indices/basketball/rules.faiss)
-python scripts/build_faiss.py
-
-# Start production backend (real pipeline)
-ANTHROPIC_API_KEY=sk-ant-... CORS_ORIGINS=http://localhost:3000 \
-  uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload
+# Start production backend (real pipeline). AI_PROVIDER=mock runs offline.
+ANTHROPIC_API_KEY=sk-ant-... AI_PROVIDER=anthropic CORS_ORIGINS=http://localhost:3000 \
+  uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 # Run tests
 source venv/bin/activate
 pytest tests/
 
 # Run a single test
-pytest tests/test_schemas.py::test_adjudicator_output_roundtrip -v
+pytest tests/test_sport_routing.py::test_rule_records_basketball_returns_nine_rules -v
 
 # Syntax/import check (no venv needed for this quick check)
-python3 -m compileall app/
+python3 -m compileall services/ main.py
 
 # Performance benchmark (offline; Sprint 6). Exercises the real analyze_clip
 # orchestration with a simulated-latency provider — no network/key needed.
@@ -55,51 +52,60 @@ NEXT_PUBLIC_API_BASE=http://localhost:8000
 
 This is a multi-agent AI pipeline for reviewing sports officiating calls. A user uploads a video clip; the backend runs a 4-agent pipeline and returns a structured verdict; the frontend displays it.
 
-### Agent pipeline (`backend/app/`)
+> Note: there is **no `backend/app/` package** and **no FAISS/`sentence-transformers`**. Earlier
+> revisions of this doc described an aspirational `app/agents/…` + FAISS design that this backend
+> never shipped. The real code lives under `backend/services/` and retrieval is keyword-based.
 
-All agents are `async` and use `anthropic.AsyncAnthropic`. The pipeline is orchestrated in `app/agents/pipeline.py:analyze_clip()` which the FastAPI route calls directly.
+### Agent pipeline (`backend/services/`)
+
+The pipeline is orchestrated by `services/ai_analyzer.py:analyze_clip()` — a **synchronous** function the FastAPI routes call via `asyncio.to_thread` (Sprint 6). It talks to LLMs only through the provider seam (`_send_messages` → `services/ai/`), so it runs against Anthropic, Gemini, or the offline mock unchanged.
 
 ```
-analyze_clip(video_path, sport, original_call, client)
+analyze_clip(file, sport, ..., video_metadata)      services/ai_analyzer.py
   │
-  ├─ perceive()          app/perception/agent.py
-  │    ffmpeg extracts 10 evenly-spaced frames → Claude vision (claude-sonnet-4-5)
-  │    → EventDescription (structured JSON, no verdict)
+  ├─ _extract_frames()          services/analysis/frames.py
+  │    ffprobe duration + ffmpeg → 10 evenly-spaced JPEGs (clip_id-cached on disk)
   │
-  ├─ retrieve_rules()    app/rag/retriever.py
-  │    sentence-transformers embeds the event summary
-  │    FAISS inner-product search over data/indices/{sport}/rules.faiss
-  │    → list[RuleChunk] (top 5)
+  └─ _run_four_agent_pipeline()                       services/ai_analyzer.py
+       ├─ detector.detect()     services/detectors/  (default claude_vision → _perception_agent)
+       │    Claude vision over the frames → perception dict (no verdict)
+       ├─ _retrieval_agent()    Claude turns perception into a rulebook query
+       ├─ _retrieve_rules()     services/analysis/retrieval.py
+       │    keyword scoring over rules.sport_config (NO embeddings/FAISS) → top 5
+       ├─ adjudicators A ∥ B    conservative (temp 0.2) ∥ skeptical (temp 0.7),
+       │    run concurrently on a ThreadPoolExecutor; identical prompt built once
+       └─ (mock/degraded runs return services/analysis/mock_result.py)
   │
-  ├─ adjudicate()        app/agents/adjudicator.py
-  │    asyncio.gather → two Claude instances in parallel
-  │    Adjudicator A: conservative (temp=0.2), defaults to fair_call
-  │    Adjudicator B: skeptical   (temp=0.7), challenges the ref
-  │    → (AdjudicatorOutput, AdjudicatorOutput)
-  │
-  └─ reconcile()         app/agents/adjudicator.py
-       agree  → that verdict, averaged confidence
-       disagree → INCONCLUSIVE, damped confidence
-       poor perception confidence → forced INCONCLUSIVE
-       → FinalVerdict
+  └─ _build_response() → _reconcile()                 services/ai_analyzer.py
+       agree → that verdict, averaged confidence (± tracking nudge)
+       disagree / weak perception → inconclusive, damped confidence
 ```
 
-### Data contracts (`backend/app/models/schemas.py`)
+### The `services/analysis/` package (Sprint 7)
 
-All inter-agent types are Pydantic v2 models. `frontend/src/lib/types.ts` mirrors them in TypeScript — **keep the two files in sync when changing schemas**. The test suite (`backend/tests/test_schemas.py`) covers schema validation; run it after any schema change.
+`ai_analyzer.py` was ~1500 lines; its concerns were split into a package, leaving `ai_analyzer` as the orchestrator (~700 lines). Every name is re-imported into `ai_analyzer`, so `from services.ai_analyzer import ...` and `monkeypatch.setattr(ai, ...)` seams are unchanged.
 
-Key types: `EventDescription` → `RuleChunk` → `AdjudicatorOutput` → `FinalVerdict` → `AnalyzeResponse`
+- `prompts.py` — sport-keyed perception/retrieval/adjudicator prompts + framings.
+- `frames.py` — `FRAME_DIR`, ffprobe/ffmpeg frame extraction + on-disk cache.
+- `retrieval.py` — keyword rule-record loading + ranking (both `@lru_cache`d).
+- `mock_result.py` — the canned, network-free demo result.
+- `diagnostics.py` — additive detection/YOLO-influence diagnostics.
+- `contracts.py` — `TypedDict`s (`RuleRecord`, `AdjudicatorOutput`, `AgentResult`) documenting the payload shapes (annotation-only; no runtime validation).
 
-### FAISS index bootstrap
+`ai_analyzer.py` still owns orchestration, the provider-instance + result caches, reconciliation, and response building.
 
-There is no PDF in the repo. `backend/data/indices/basketball/rules.json` contains 20 hand-authored NBA rule chunks. `backend/scripts/build_faiss.py` reads that JSON and writes `rules.faiss` (gitignored binary). `backend/build.sh` runs this automatically on Render. Locally, run `python scripts/build_faiss.py` once after setup. The retriever uses `@lru_cache` so the index loads once per process. To add or edit rules, edit `rules.json` and rebuild.
+### Response shape / frontend contract
 
-### FastAPI entrypoint (`backend/app/api/main.py`)
+The response is assembled as plain dicts in `_build_response` / `_frontend_perception` (there is no `schemas.py`). `frontend/src/lib/types.ts` mirrors that shape — **keep the two in sync**. `services/perception_schema.py` holds the Pydantic `SportDetails` models (live) and a reserved sport-neutral `PerceptionCore` (not yet wired).
 
-- `GET /api/health` — Render healthcheck
-- `POST /api/analyze` — multipart: `file` (UploadFile) or `clip_url` (str), `sport`, `original_call`; writes to a `tempfile.TemporaryDirectory` then calls `analyze_clip()`; CORS origins read from `CORS_ORIGINS` env var (comma-separated)
+### FastAPI entrypoint (`backend/main.py`)
 
-`backend/main.py` is an older mock entrypoint using `services/mock_analyzer.py`. It is not used in production. The Render start command targets `app.api.main:app`.
+- `GET /api/health` — Render healthcheck; `GET /` — liveness.
+- `POST /api/analyze` — multipart (`file`, `sport`, `level`, `league`, `original_call`, `ref_name`); saves the clip, runs `analyze_clip` off the event loop, persists via `services/supabase_store.py`. `POST /analyze` is the same with legacy field names.
+- `GET /api/clips/{name}`, `GET /api/frames/{clip_id}/{name}`, `GET /api/feed` — media + feed.
+- CORS origins come from `FRONTEND_ORIGIN` / `CORS_ORIGINS` (comma-separated) plus a `*.vercel.app` regex.
+
+Deploy: Docker (`backend/Dockerfile`) → `uvicorn main:app`. There is no `build.sh`.
 
 ### AI provider abstraction
 
@@ -125,7 +131,7 @@ backend/services/ai/
 
 **Environment configuration:** `AI_PROVIDER` selects the provider (`mock` | `anthropic` | `gemini`; default `mock`; invalid values raise a clear error). `anthropic` needs `ANTHROPIC_API_KEY` (model override: `AI_MODEL`, default `claude-sonnet-4-5`). `gemini` needs `GEMINI_API_KEY` and the `google-genai` package (model override: `GEMINI_MODEL`, default `gemini-2.5-flash`). Missing keys degrade to the mock fallback with the reason surfaced in diagnostics; an unsupported `AI_PROVIDER` value fails loudly.
 
-**Adding a future provider** (OpenAI, Azure, Grok, Ollama, …): (1) create one class implementing `AIProvider` under `providers/`, (2) register it in `factory._PROVIDERS`. The four-agent pipeline requires zero changes. Design principle for contributors: a provider only knows how to turn a system prompt + neutral content + temperature/max_tokens into a text reply — it must not import `ai_analyzer`, know about agents, or reshape JSON.
+**Adding a future provider** (OpenAI, Azure, Grok, Ollama, …): (1) create one class implementing `AIProvider` under `providers/`, (2) add one `_registry.register(...)` line in `factory.py` (the shared `services/registry.Registry`). The four-agent pipeline requires zero changes. Design principle for contributors: a provider only knows how to turn a system prompt + neutral content + temperature/max_tokens into a text reply — it must not import `ai_analyzer`, know about agents, or reshape JSON.
 
 ### Hybrid perception grounding (YOLO tracked evidence)
 
@@ -246,14 +252,30 @@ Note: there are **no embeddings/FAISS** in this pipeline — retrieval is
 keyword-based — so "cache embeddings" maps to the rule-corpus/ranking caches
 above (see `backend/PERFORMANCE.md`).
 
+### Configuration & shared utilities (Sprint 7)
+
+- `services/config.py` is the single source of truth for **every env-var name and
+  default** (`AI_PROVIDER`/`AI_MODEL`/`DETECTOR`/`ANALYSIS_CACHE`/`SUPABASE_*`/…,
+  and defaults `"mock"`/`"claude_vision"`/model names). Modules reference these
+  constants instead of hardcoding strings; providers still read their own secrets.
+  Resolvers: `resolved_provider()`, `resolved_detector()`, `env_flag()`.
+- `services/registry.py` — one generic `Registry[T]` behind providers, detectors,
+  and extractors. Unknown key raises (providers/detectors) or falls back
+  (extractors, via `fallback=EmptyDetailExtractor`); that policy is the only
+  difference and it's a constructor argument, not duplicated code.
+- `services/text_utils.py` (`clean`, `rule_id_from_call_type`) and
+  `services/verdicts.py` (`VERDICTS`, `normalize_verdict`) hold formerly-duplicated
+  helpers/verdict maps. Interface style: providers use an ABC (`AIProvider`, for the
+  shared `is_mock`); detectors/extractors use `Protocol`s — intentional, documented.
+
 ### Deployment
 
-- **Backend → Render**: `render.yaml` at repo root; rootDir=`backend`; build=`bash build.sh`; start=`uvicorn app.api.main:app --host 0.0.0.0 --port $PORT`
+- **Backend → Render**: `render.yaml` at repo root; rootDir=`backend`; `runtime: docker` (`backend/Dockerfile` → `uvicorn main:app`). There is no `build.sh`.
 - **Frontend → Vercel**: root directory=`frontend`; framework auto-detected as Next.js; env var=`NEXT_PUBLIC_API_BASE`
 
 ## Key Constraints
 
-- Do not change `backend/app/models/schemas.py` without updating `frontend/src/lib/types.ts` to match.
-- The Anthropic model default `claude-sonnet-4-5` lives in `backend/services/ai/providers/anthropic_provider.py` (`DEFAULT_MODEL`), overridable via `AI_MODEL`. It is intentionally not updated to 4.6 yet — check before changing. Provider-specific model names belong in the provider classes, never in `ai_analyzer.py`.
-- `retrieve_rules()` resolves `data/indices/{sport}/` relative to the process working directory. The process must start from `backend/`.
+- The response is built as dicts in `services/ai_analyzer.py` (`_build_response`/`_frontend_perception`); keep `frontend/src/lib/types.ts` in sync when the shape changes. There is no `schemas.py`.
+- The Anthropic model default `claude-sonnet-4-5` lives in `backend/services/ai/providers/anthropic_provider.py` (`DEFAULT_MODEL`, sourced from `config.DEFAULT_ANTHROPIC_MODEL`), overridable via `AI_MODEL`. It is intentionally not updated yet — check before changing. Provider-specific model names belong in the provider classes, never in `ai_analyzer.py`.
+- `_retrieve_rules()` scores the static corpus from `rules.sport_config` (keyword-based, no index files). The process must start from `backend/` so lazy `rules.*` imports resolve.
 - Render free tier sleeps after 15 min inactivity. Hit `/api/health` before a demo to warm up.

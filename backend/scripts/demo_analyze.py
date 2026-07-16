@@ -38,6 +38,8 @@ from types import SimpleNamespace
 # Allow running directly (python scripts/demo_analyze.py) from backend/.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from services import config  # noqa: E402  (after sys.path bootstrap)
+
 PROVIDERS = ("mock", "anthropic")
 DETECTORS = ("claude_vision", "yolov8", "hybrid")
 YOLO_DETECTORS = ("yolov8", "hybrid")
@@ -71,8 +73,8 @@ def preflight(
     Returns an ordered list of checks; a check is `critical` when its failure
     makes a real run impossible.
     """
-    resolved_provider = (provider or os.getenv("AI_PROVIDER") or "mock").lower()
-    resolved_detector = (detector or os.getenv("DETECTOR") or "claude_vision").lower()
+    resolved_provider = config.resolved_provider(provider)
+    resolved_detector = config.resolved_detector(detector)
     wants_anthropic = resolved_provider == "anthropic"
     wants_yolo = resolved_detector in YOLO_DETECTORS
 

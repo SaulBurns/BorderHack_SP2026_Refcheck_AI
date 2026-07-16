@@ -22,6 +22,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import services.ai_analyzer as ai
+from services.analysis import frames as frames_mod
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +35,7 @@ def test_extract_frames_reuses_cached_frames(monkeypatch, tmp_path):
     frame_dir.mkdir(parents=True)
     for i in range(1, 4):
         (frame_dir / f"frame_{i:03d}.jpg").write_bytes(b"x")
-    monkeypatch.setattr(ai, "FRAME_DIR", tmp_path)
+    monkeypatch.setattr(frames_mod, "FRAME_DIR", tmp_path)
 
     video = tmp_path / "clip.mp4"
     video.write_bytes(b"fakevideo")
@@ -42,7 +43,7 @@ def test_extract_frames_reuses_cached_frames(monkeypatch, tmp_path):
     def _boom(*a, **k):
         raise AssertionError("ffprobe/ffmpeg must not run when frames are cached")
 
-    monkeypatch.setattr(ai.subprocess, "run", _boom)
+    monkeypatch.setattr(frames_mod.subprocess, "run", _boom)
 
     frames = ai._extract_frames(str(video), clip_id)
     assert len(frames) == 3
@@ -51,7 +52,7 @@ def test_extract_frames_reuses_cached_frames(monkeypatch, tmp_path):
 
 def test_extract_frames_extracts_when_no_cache(monkeypatch, tmp_path):
     clip_id = "freshclip"
-    monkeypatch.setattr(ai, "FRAME_DIR", tmp_path)
+    monkeypatch.setattr(frames_mod, "FRAME_DIR", tmp_path)
     video = tmp_path / "clip.mp4"
     video.write_bytes(b"fakevideo")
 
@@ -66,7 +67,7 @@ def test_extract_frames_extracts_when_no_cache(monkeypatch, tmp_path):
             (out / "frame_001.jpg").write_bytes(b"x")
         return MagicMock(stdout="2.0")
 
-    monkeypatch.setattr(ai.subprocess, "run", _fake_run)
+    monkeypatch.setattr(frames_mod.subprocess, "run", _fake_run)
     frames = ai._extract_frames(str(video), clip_id)
     assert len(frames) == 1
     assert calls["run"] >= 1  # ffmpeg ran on the cold path
