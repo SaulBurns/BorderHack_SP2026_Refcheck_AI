@@ -23,14 +23,25 @@ export async function analyzeClip(
   if (params.league) formData.append("league", params.league);
   if (params.level) formData.append("level", params.level);
 
-  const res = await fetch(`${API_BASE}/api/analyze`, {
-    method: "POST",
-    body: formData,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/analyze`, {
+      method: "POST",
+      body: formData,
+    });
+  } catch {
+    // Network / connection error (backend down, CORS, offline) — friendly copy
+    // instead of a raw "TypeError: Failed to fetch".
+    throw new Error(
+      "Can't reach the analysis server. Check your connection and make sure the backend is running.",
+    );
+  }
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Analysis failed (${res.status}): ${text}`);
+    // Don't surface raw server text/HTML to the user; keep it friendly.
+    throw new Error(
+      `Analysis failed (${res.status}). The server had trouble with this clip — please try again.`,
+    );
   }
   return res.json();
 }
@@ -64,13 +75,18 @@ export interface FeedItem {
 }
 
 export async function getFeedItems(): Promise<FeedItem[]> {
-  const res = await fetch(`${API_BASE}/api/feed?limit=20`, {
-    cache: "no-store",
-  });
-
-  if (!res.ok) return [];
-  const data = await res.json();
-  return Array.isArray(data.items) ? data.items : [];
+  // Never throws: a down/unreachable backend just yields an empty list so the
+  // Feed falls back to its demo clips instead of an unhandled rejection.
+  try {
+    const res = await fetch(`${API_BASE}/api/feed?limit=20`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.items) ? data.items : [];
+  } catch {
+    return [];
+  }
 }
 
 export function resolveApiUrl(pathOrUrl: string): string {

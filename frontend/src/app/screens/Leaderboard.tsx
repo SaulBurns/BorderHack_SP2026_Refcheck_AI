@@ -3,6 +3,7 @@
 import Image, { type StaticImageData } from "next/image";
 import { useState } from "react";
 import { Search, Star } from "lucide-react";
+import { refSlug } from "../../lib/referees";
 import edMalloyPhoto from "../../images/ed_malloy.jpg";
 import jamesCapersPhoto from "../../images/james_capers.jpg";
 import johnGoblePhoto from "../../images/john_goble.jpg";
@@ -118,8 +119,6 @@ const refs: Referee[] = [
     photo: scottFosterPhoto,
   },
 ];
-
-const refSlug = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
 
 export default function Leaderboard() {
   const [sortBy, setSortBy] = useState("highest");

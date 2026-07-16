@@ -1,9 +1,11 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useState } from "react";
 import { CircleHelp, Play, Star, ThumbsDown, ThumbsUp } from "lucide-react";
-import zachZarbaPhoto from "../../images/zach_zarba.jpg";
+import { getRefBySlug } from "../../lib/referees";
 
 const recentCalls = [
   {
@@ -45,6 +47,9 @@ const recentCalls = [
 ];
 
 export default function RefProfile() {
+  const params = useParams();
+  const slug = String((params?.slug as string | undefined) ?? "");
+
   const [showRatingForm, setShowRatingForm] = useState(false);
   const [ratingValues, setRatingValues] = useState<Record<string, number>>({});
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
@@ -53,20 +58,42 @@ export default function RefProfile() {
     Record<number, { fairVotes: number; badVotes: number; inconclusiveVotes: number; userVote?: "fair" | "bad" | "inconclusive" }>
   >({});
 
+  const roster = getRefBySlug(slug);
+
+  // Unknown ref slug — graceful empty state instead of a wrong/blank profile.
+  if (!roster) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-24 text-center">
+        <h1 className="font-marker text-5xl mb-4 transform -rotate-1">REF NOT FOUND</h1>
+        <p className="text-lg text-gray-600 mb-8">
+          We don&apos;t have a profile for &ldquo;{slug || "that referee"}&rdquo; yet.
+        </p>
+        <Link
+          href="/leaderboard"
+          className="inline-block bg-black text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors font-mono"
+        >
+          ← Back to the leaderboard
+        </Link>
+      </div>
+    );
+  }
+
+  // Identity fields come from the shared roster (so name + photo + league match
+  // the slug). Remaining fields are illustrative demo stats for this build.
   const ref = {
-    name: "John Smith",
-    photo: zachZarbaPhoto,
-    league: "High School - Division 1",
-    sport: "Basketball",
-    years: 12,
-    hometown: "Austin, TX",
-    gamesOfficiated: 847,
-    overallRating: 3.8,
+    name: roster.name,
+    photo: roster.photo,
+    league: roster.league,
+    sport: roster.sport,
+    years: roster.years,
+    hometown: "—",
+    gamesOfficiated: roster.totalRatings,
+    overallRating: roster.rating,
     dimensions: {
-      consistency: 4.1,
-      gameAwareness: 3.9,
-      communication: 3.2,
-      fairness: 4.0,
+      consistency: Math.min(5, Math.round((roster.rating + 0.3) * 10) / 10),
+      gameAwareness: Math.min(5, Math.round((roster.rating + 0.1) * 10) / 10),
+      communication: Math.max(0, Math.round((roster.rating - 0.6) * 10) / 10),
+      fairness: Math.round(roster.rating * 10) / 10,
     },
     strengths: ["Out of bounds calls", "Clock management", "Player communication"],
     weaknesses: ["Charging/blocking decisions", "Late-game pressure situations"],
