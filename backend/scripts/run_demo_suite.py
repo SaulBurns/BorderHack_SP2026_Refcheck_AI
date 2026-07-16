@@ -8,6 +8,9 @@ pipeline. It just orchestrates many clips and aggregates.
 
 Examples (run from the `backend/` directory):
 
+    # Sponsor one-liner — runs the curated 10-scenario manifest and writes reports:
+    python scripts/run_demo_suite.py
+
     # Transparent mock suite (default provider is mock; proves the plumbing):
     python scripts/run_demo_suite.py --manifest demo_clips/manifest.json
 
@@ -51,6 +54,10 @@ from scripts.demo_analyze import (  # noqa: E402
 
 REQUIRED_FIELDS = ("clip_id", "sport", "video_path", "original_call")
 
+# The curated basketball manifest shipped with the repo. Lets sponsors run the
+# suite with zero arguments: `python scripts/run_demo_suite.py`.
+DEFAULT_MANIFEST = Path(__file__).resolve().parent.parent / "demo_clips" / "manifest.json"
+
 # Sponsor-friendly synonyms mapped to the pipeline's real verdict vocabulary
 # (fair_call / bad_call / inconclusive), so a manifest may say "upheld".
 _VERDICT_ALIASES = {
@@ -71,13 +78,25 @@ class ManifestError(ValueError):
     """Raised for a malformed manifest or manifest entry."""
 
 
+# Expected-confidence bands: label -> (inclusive low, exclusive high).
+_CONFIDENCE_BANDS = {
+    "high": (0.75, 1.01),
+    "medium": (0.50, 0.75),
+    "low": (0.0, 0.50),
+}
+
+
 @dataclass(frozen=True)
 class DemoClip:
     clip_id: str
     sport: str
     video_path: str
     original_call: str
+    scenario: str | None = None
     expected_verdict: str | None = None
+    expected_rule_id: str | None = None
+    rule_citation: str | None = None
+    expected_confidence: str | None = None
     game_date: str | None = None
     home_team: str | None = None
     away_team: str | None = None
@@ -102,16 +121,23 @@ def validate_clip(row: dict, index: int = 0) -> DemoClip:
     if missing:
         clip_id = row.get("clip_id", f"#{index}")
         raise ManifestError(f"Manifest entry {clip_id!r} is missing required field(s): {', '.join(missing)}.")
+    def _opt(field: str) -> str | None:
+        return str(row[field]) if row.get(field) else None
+
     return DemoClip(
         clip_id=str(row["clip_id"]),
         sport=str(row["sport"]),
         video_path=str(row["video_path"]),
         original_call=str(row["original_call"]),
-        expected_verdict=(str(row["expected_verdict"]) if row.get("expected_verdict") else None),
-        game_date=(str(row["game_date"]) if row.get("game_date") else None),
-        home_team=(str(row["home_team"]) if row.get("home_team") else None),
-        away_team=(str(row["away_team"]) if row.get("away_team") else None),
-        notes=(str(row["notes"]) if row.get("notes") else None),
+        scenario=_opt("scenario"),
+        expected_verdict=_opt("expected_verdict"),
+        expected_rule_id=_opt("expected_rule_id"),
+        rule_citation=_opt("rule_citation"),
+        expected_confidence=_opt("expected_confidence"),
+        game_date=_opt("game_date"),
+        home_team=_opt("home_team"),
+        away_team=_opt("away_team"),
+        notes=_opt("notes"),
     )
 
 
@@ -162,19 +188,34 @@ def _normalize_verdict(value: str | None) -> str | None:
     return _VERDICT_ALIASES.get(value.strip().lower(), value.strip().lower())
 
 
+def _confidence_meets_expectation(expected: str | None, actual) -> bool | None:
+    """Whether `actual` falls in the band named by `expected` (high/medium/low)."""
+    band = _CONFIDENCE_BANDS.get((expected or "").strip().lower())
+    if band is None or not isinstance(actual, (int, float)):
+        return None
+    low, high = band
+    return low <= actual < high
+
+
 def build_record(clip: DemoClip, response: dict) -> dict:
     diag = response.get("diagnostics", {}) or {}
     verdict = response.get("verdict", {}) or {}
     rule = verdict.get("cited_rule", {}) or {}
     actual_verdict = verdict.get("verdict")
+    actual_confidence = verdict.get("confidence")
+    cited_rule_id = rule.get("rule_id")
     real_ran = _real_pipeline_ran(diag)
 
     record = {
         "clip_id": clip.clip_id,
         "sport": clip.sport,
+        "scenario": clip.scenario,
         "video_path": clip.video_path,
         "original_call": clip.original_call,
         "notes": clip.notes,
+        # curated expectations (from the manifest)
+        "rule_citation": clip.rule_citation,
+        "expected_confidence": clip.expected_confidence,
         # pipeline outcome
         "provider_used": diag.get("provider_used"),
         "detector": diag.get("detector"),
@@ -188,8 +229,8 @@ def build_record(clip: DemoClip, response: dict) -> dict:
         "metadata_hint_source": _metadata_hint_source(response, clip.metadata_hints()),
         # decision output
         "verdict": actual_verdict,
-        "confidence": verdict.get("confidence"),
-        "cited_rule_id": rule.get("rule_id"),
+        "confidence": actual_confidence,
+        "cited_rule_id": cited_rule_id,
         "cited_rule": rule.get("section_title"),
         "status": "ok",
         "error": None,
@@ -199,6 +240,15 @@ def build_record(clip: DemoClip, response: dict) -> dict:
         record["verdict_matches_expected"] = (
             _normalize_verdict(actual_verdict) == _normalize_verdict(clip.expected_verdict)
         )
+    if clip.expected_rule_id is not None:
+        record["expected_rule_id"] = clip.expected_rule_id
+        record["rule_matches_expected"] = bool(
+            cited_rule_id and str(cited_rule_id).upper() == clip.expected_rule_id.upper()
+        )
+    if clip.expected_confidence is not None:
+        record["confidence_meets_expectation"] = _confidence_meets_expectation(
+            clip.expected_confidence, actual_confidence
+        )
     return record
 
 
@@ -206,9 +256,12 @@ def _error_record(clip: DemoClip, message: str) -> dict:
     record = {
         "clip_id": clip.clip_id,
         "sport": clip.sport,
+        "scenario": clip.scenario,
         "video_path": clip.video_path,
         "original_call": clip.original_call,
         "notes": clip.notes,
+        "rule_citation": clip.rule_citation,
+        "expected_confidence": clip.expected_confidence,
         "provider_used": None,
         "detector": None,
         "fallback_reason": message,
@@ -229,6 +282,11 @@ def _error_record(clip: DemoClip, message: str) -> dict:
     if clip.expected_verdict is not None:
         record["expected_verdict"] = clip.expected_verdict
         record["verdict_matches_expected"] = False
+    if clip.expected_rule_id is not None:
+        record["expected_rule_id"] = clip.expected_rule_id
+        record["rule_matches_expected"] = False
+    if clip.expected_confidence is not None:
+        record["confidence_meets_expectation"] = None
     return record
 
 
@@ -253,13 +311,34 @@ def run_clip(clip: DemoClip, manifest_path: str | Path, provider: str | None, de
 # Aggregate report
 # ---------------------------------------------------------------------------
 
+def _rate(matches: int, provided: int) -> float | None:
+    """Match rate in [0, 1], or None when nothing was provided to compare."""
+    return round(matches / provided, 3) if provided else None
+
+
 def build_report(records: list[dict], *, provider: str | None, detector: str | None) -> dict:
     total = len(records)
     real = sum(1 for r in records if r.get("real_pipeline_ran"))
     metadata_resolved = sum(1 for r in records if r.get("metadata_status") == "resolved")
+    errors = sum(1 for r in records if r.get("status") == "error")
+
     with_expected = [r for r in records if "verdict_matches_expected" in r]
     matched = sum(1 for r in with_expected if r["verdict_matches_expected"])
-    errors = sum(1 for r in records if r.get("status") == "error")
+    with_rule = [r for r in records if "rule_matches_expected" in r]
+    rule_matched = sum(1 for r in with_rule if r["rule_matches_expected"])
+    with_conf = [r for r in records if r.get("confidence_meets_expectation") is not None]
+    conf_met = sum(1 for r in with_conf if r["confidence_meets_expectation"])
+
+    # Scenario coverage + verdict distribution + mean confidence (aggregate metrics).
+    scenarios = sorted({r["scenario"] for r in records if r.get("scenario")})
+    verdict_distribution: dict[str, int] = {"fair_call": 0, "bad_call": 0, "inconclusive": 0}
+    for r in records:
+        v = r.get("verdict")
+        if v in verdict_distribution:
+            verdict_distribution[v] += 1
+    confidences = [r["confidence"] for r in records if isinstance(r.get("confidence"), (int, float))]
+    average_confidence = round(sum(confidences) / len(confidences), 3) if confidences else None
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "provider_requested": provider or "(env default)",
@@ -272,6 +351,17 @@ def build_report(records: list[dict], *, provider: str | None, detector: str | N
             "errors": errors,
             "expected_verdict_provided": len(with_expected),
             "expected_verdict_matches": matched,
+            "verdict_accuracy": _rate(matched, len(with_expected)),
+            "expected_rule_provided": len(with_rule),
+            "rule_citation_matches": rule_matched,
+            "rule_citation_accuracy": _rate(rule_matched, len(with_rule)),
+            "confidence_expectation_provided": len(with_conf),
+            "confidence_expectation_met": conf_met,
+            "confidence_expectation_accuracy": _rate(conf_met, len(with_conf)),
+            "scenarios_covered": scenarios,
+            "scenario_count": len(scenarios),
+            "verdict_distribution": verdict_distribution,
+            "average_confidence": average_confidence,
         },
         "clips": records,
     }
@@ -279,6 +369,16 @@ def build_report(records: list[dict], *, provider: str | None, detector: str | N
 
 def _fmt(value) -> str:
     return "—" if value in (None, "") else str(value)
+
+
+def _pct(rate: float | None) -> str:
+    return "—" if rate is None else f"{round(rate * 100)}%"
+
+
+def _badge(flag) -> str:
+    if flag is None:
+        return "—"
+    return "✅" if flag else "❌"
 
 
 def render_markdown(report: dict) -> str:
@@ -291,11 +391,22 @@ def render_markdown(report: dict) -> str:
         "",
         "## Summary",
         "",
-        f"- **Total clips:** {s['total_clips']}",
+        f"- **Total clips:** {s['total_clips']}  ·  **Scenarios covered:** {s['scenario_count']}",
         f"- **Real pipeline runs:** {s['real_pipeline_runs']}  ·  **Mock/fallback:** {s['mock_or_fallback_runs']}",
         f"- **Metadata resolved:** {s['metadata_resolved']} / {s['total_clips']}",
-        f"- **Expected-verdict matches:** {s['expected_verdict_matches']} / {s['expected_verdict_provided']}",
         f"- **Errors:** {s['errors']}",
+        "",
+        "### Aggregate metrics",
+        "",
+        "| Metric | Result |",
+        "| --- | --- |",
+        f"| Verdict accuracy | {s['expected_verdict_matches']} / {s['expected_verdict_provided']} ({_pct(s['verdict_accuracy'])}) |",
+        f"| Rule-citation accuracy | {s['rule_citation_matches']} / {s['expected_rule_provided']} ({_pct(s['rule_citation_accuracy'])}) |",
+        f"| Confidence-expectation met | {s['confidence_expectation_met']} / {s['confidence_expectation_provided']} ({_pct(s['confidence_expectation_accuracy'])}) |",
+        f"| Average confidence | {_fmt(s['average_confidence'])} |",
+        f"| Verdict distribution | fair_call {s['verdict_distribution']['fair_call']} · bad_call {s['verdict_distribution']['bad_call']} · inconclusive {s['verdict_distribution']['inconclusive']} |",
+        "",
+        f"_Scenarios:_ {', '.join(s['scenarios_covered']) or '—'}",
         "",
     ]
     if s["real_pipeline_runs"] == 0:
@@ -305,21 +416,48 @@ def render_markdown(report: dict) -> str:
             "`fallback_reason` below.",
             "",
         ]
+
+    # Results-at-a-glance table.
+    lines += [
+        "## Results",
+        "",
+        "| Clip | Scenario | Verdict | Conf | Expected | ✓ | Real |",
+        "| --- | --- | --- | --- | --- | :-: | :-: |",
+    ]
+    for r in report["clips"]:
+        verdict_match = _badge(r.get("verdict_matches_expected")) if "verdict_matches_expected" in r else "—"
+        real = "✅" if r.get("real_pipeline_ran") else "mock"
+        lines.append(
+            f"| `{r['clip_id']}` | {_fmt(r.get('scenario'))} | `{_fmt(r.get('verdict'))}` | "
+            f"{_fmt(r.get('confidence'))} | `{_fmt(r.get('expected_verdict'))}` | {verdict_match} | {real} |"
+        )
+    lines.append("")
+
+    # Per-clip detail.
     lines += ["## Clips", ""]
     for r in report["clips"]:
         real = "✅ YES" if r.get("real_pipeline_ran") else "❌ NO"
+        header = f"### {r['clip_id']}"
+        if r.get("scenario"):
+            header += f" — {r['scenario']}"
         lines += [
-            f"### {r['clip_id']}",
+            header,
             "",
             f"- Original call: {_fmt(r.get('original_call'))}",
             f"- Real pipeline ran: **{real}**",
             f"- Verdict: `{_fmt(r.get('verdict'))}`  ·  Confidence: {_fmt(r.get('confidence'))}",
             f"- Cited rule: {_fmt(r.get('cited_rule_id'))} — {_fmt(r.get('cited_rule'))}",
-            f"- Metadata: status=`{_fmt(r.get('metadata_status'))}` source=`{_fmt(r.get('metadata_hint_source'))}`",
         ]
+        if r.get("rule_citation"):
+            rule_badge = f"  → {_badge(r['rule_matches_expected'])}" if "rule_matches_expected" in r else ""
+            lines.append(f"- Expected citation: {r['rule_citation']}{rule_badge}")
         if "verdict_matches_expected" in r:
             match = "✅ match" if r["verdict_matches_expected"] else "❌ mismatch"
-            lines.append(f"- Expected: `{_fmt(r.get('expected_verdict'))}` → {match}")
+            lines.append(f"- Expected verdict: `{_fmt(r.get('expected_verdict'))}` → {match}")
+        if r.get("expected_confidence"):
+            met = _badge(r.get("confidence_meets_expectation"))
+            lines.append(f"- Expected confidence: `{r['expected_confidence']}` → {met}")
+        lines.append(f"- Metadata: status=`{_fmt(r.get('metadata_status'))}` source=`{_fmt(r.get('metadata_hint_source'))}`")
         if r.get("fallback_reason"):
             lines.append(f"- Fallback reason: _{r['fallback_reason']}_")
         if r.get("notes"):
@@ -333,19 +471,26 @@ def print_console_summary(report: dict) -> None:
     print("================ DEMO SUITE ================")
     for r in report["clips"]:
         real = "REAL" if r.get("real_pipeline_ran") else "mock"
+        expected = r.get("expected_verdict")
+        mark = ""
+        if "verdict_matches_expected" in r:
+            mark = " ✓" if r["verdict_matches_expected"] else " ✗"
         print(
-            f"  [{real:>4}] {r['clip_id']:<24} "
+            f"  [{real:>4}] {_fmt(r.get('scenario')):<16} {r['clip_id']:<24} "
             f"verdict={_fmt(r.get('verdict')):<12} conf={_fmt(r.get('confidence')):<5} "
-            f"meta={_fmt(r.get('metadata_status'))}"
+            f"exp={_fmt(expected)}{mark}"
         )
         if r.get("fallback_reason"):
             print(f"         ↳ fallback: {r['fallback_reason']}")
     print("--------------------------------------------")
     print(
-        f"  total={s['total_clips']} real={s['real_pipeline_runs']} "
-        f"mock={s['mock_or_fallback_runs']} meta_resolved={s['metadata_resolved']} "
-        f"expected_match={s['expected_verdict_matches']}/{s['expected_verdict_provided']} "
-        f"errors={s['errors']}"
+        f"  clips={s['total_clips']} scenarios={s['scenario_count']} "
+        f"real={s['real_pipeline_runs']} mock={s['mock_or_fallback_runs']} errors={s['errors']}"
+    )
+    print(
+        f"  verdict_acc={s['expected_verdict_matches']}/{s['expected_verdict_provided']} ({_pct(s['verdict_accuracy'])}) "
+        f"rule_acc={s['rule_citation_matches']}/{s['expected_rule_provided']} ({_pct(s['rule_citation_accuracy'])}) "
+        f"conf_acc={s['confidence_expectation_met']}/{s['confidence_expectation_provided']} ({_pct(s['confidence_expectation_accuracy'])})"
     )
     print("============================================")
 
@@ -359,7 +504,11 @@ def build_parser() -> argparse.ArgumentParser:
         prog="run_demo_suite",
         description="Run a curated basketball demo suite and emit JSON + Markdown reports.",
     )
-    parser.add_argument("--manifest", required=True, help="Path to the demo manifest JSON.")
+    parser.add_argument(
+        "--manifest",
+        default=str(DEFAULT_MANIFEST),
+        help=f"Path to the demo manifest JSON (default: {DEFAULT_MANIFEST}).",
+    )
     parser.add_argument("--provider", choices=PROVIDERS, default=None, help="Override AI_PROVIDER.")
     parser.add_argument("--detector", choices=DETECTORS, default=None, help="Override DETECTOR.")
     parser.add_argument("--strict-real", action="store_true", help="Fail (nonzero) if any clip cannot run for real.")
