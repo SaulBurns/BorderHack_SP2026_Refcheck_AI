@@ -93,6 +93,7 @@ disagreement or weak perception → `inconclusive` with damped confidence.
 | `main.py` | FastAPI app: `/api/analyze`, `/api/feed`, media routes, CORS, health. |
 | `services/ai_analyzer.py` | Pipeline orchestration, reconciliation, diagnostics, caches. |
 | `services/ai/` | Provider abstraction (`AIProvider` + `anthropic` / `gemini` / `mock` + factory). |
+| `sports/` | **Sport plugins** (`Sport` interface + `SportRegistry` + `basketball/` + `GenericSport` fallback). Owns per-sport prompts, rule boosts, sport-details, tracking, and game context; the pipeline resolves one via `get_sport(sport)` — no `sport == "basketball"` checks. |
 | `services/detectors/` | `claude_vision`, `yolov8`, `hybrid` detectors (Claude perception + optional YOLO tracking). |
 | `services/extractors/` | Sport-detail + tracked-evidence extraction (basketball vision). |
 | `services/metadata/` | NBA game-context enrichment (nba_api; additive, guarded). |
@@ -107,6 +108,11 @@ disagreement or weak perception → `inconclusive` with damped confidence.
 - **Provider-swappable by env var.** `AI_PROVIDER=mock|anthropic|gemini`; vendor
   plumbing never leaks into the pipeline. Adding a provider = one class + one
   registry line.
+- **Sports are plugins.** Each sport implements the `Sport` interface (prompts,
+  rule boosts, sport-details, tracking, game context) and registers in the
+  `SportRegistry`. The pipeline calls `get_sport(sport)` and never branches on
+  `sport == "basketball"`; adding a sport = one plugin + one registry line, with
+  zero changes to the pipeline, providers, detectors, or evaluation.
 - **Graceful degradation.** Missing key/ffmpeg/ultralytics degrades to the mock
   fallback (surfaced in `diagnostics.fallback_reason`); a YOLO failure in hybrid
   mode keeps Claude's perception instead of failing the analysis.

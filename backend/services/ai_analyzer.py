@@ -27,7 +27,7 @@ from services.analysis.prompts import (
 from services.analysis.retrieval import _retrieve_rules, _rule_records, _rules_text
 from services.detectors import RawDetections, get_detector
 from services.extractors import get_extractor
-from services.extractors.basketball_vision import summarize_tracked_evidence
+from sports import get_sport
 from services.perception_schema import SCHEMA_VERSION
 from services.text_utils import clean as _clean
 from services.verdicts import normalize_verdict as _frontend_verdict
@@ -340,6 +340,11 @@ def _run_four_agent_pipeline(
         )
 
     try:
+        # Sport plugins (Sprint 9): the sport-specific behavior — sport-details
+        # extraction and tracking evidence — is owned by the Sport plugin, so the
+        # pipeline never checks `sport == "basketball"`. Unknown sports resolve to
+        # a GenericSport (no tracking / no game context), preserving prior behavior.
+        sport_impl = get_sport(sport)
         # Perception runs through the detector registry (default: claude_vision,
         # which delegates to _perception_agent — behavior is unchanged).
         detector = get_detector()
@@ -350,19 +355,10 @@ def _run_four_agent_pipeline(
         retrieved_rules = _retrieve_rules(retrieval_query, perception, sport)
         # Feed detection-derived sport signals to adjudication only when present,
         # so enriched signals influence verdicts without changing the default path.
-        sport_details_for_adjudication = (
-            get_extractor(sport).extract(detections, perception).model_dump()
-            if detections is not None
-            else None
-        )
-        # Tracking-grounded evidence for adjudication + confidence calibration
-        # (Phase 10C). Basketball-scoped this sprint; None leaves the prompt and
-        # reconciliation exactly as before for every other path.
-        tracked_evidence = (
-            summarize_tracked_evidence(detections)
-            if detections is not None and sport == "basketball"
-            else None
-        )
+        sport_details_for_adjudication = sport_impl.sport_details(detections, perception)
+        # Tracking-grounded evidence for adjudication + confidence calibration.
+        # The Sport plugin decides whether its sport has a tracking layer.
+        tracked_evidence = sport_impl.tracked_evidence(detections)
         # Both adjudicators receive the identical user prompt (only the system
         # framing + temperature differ), so build it once (Sprint 6 perf).
         adjudicator_prompt = _build_adjudicator_prompt(
