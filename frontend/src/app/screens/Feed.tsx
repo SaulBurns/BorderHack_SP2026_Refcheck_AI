@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Calendar, Check, CircleHelp, Flame, MessageCircle, Play, ThumbsDown, ThumbsUp, Trophy, X, Zap } from "lucide-react";
 import { getFeedItems, type FeedItem } from "../../lib/api";
+import { refSlug } from "../../lib/referees";
 
 const clips = [
   {
@@ -113,8 +114,6 @@ const verdictDisplay = {
   bad_call: { label: "BAD CALL", color: "#E63946" },
   inconclusive: { label: "INCONCLUSIVE", color: "#F6B40F" },
 };
-
-const refSlug = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
 
 const formatCallType = (value: string | null | undefined) =>
   (value || "Reviewed play")

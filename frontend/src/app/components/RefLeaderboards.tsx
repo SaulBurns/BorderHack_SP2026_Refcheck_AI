@@ -8,6 +8,7 @@ import marcDavisPhoto from "../../images/marc_davis.jpg";
 import scottFosterPhoto from "../../images/scott_foster.jpg";
 import tonyBrothersPhoto from "../../images/Tony-Brothers-scaled.jpg";
 import zachZarbaPhoto from "../../images/zach_zarba.jpg";
+import { refSlug } from "../../lib/referees";
 
 type RefWithPhoto = {
   name: string;
@@ -34,8 +35,6 @@ const controversialRefs: RefWithPhoto[] = [
   { name: "Ed Malloy", sport: "Basketball", league: "NBA", rating: 4.5, disputes: 31, photo: edMalloyPhoto },
   { name: "John Goble", sport: "Basketball", league: "NBA", rating: 4.6, disputes: 27, photo: johnGoblePhoto },
 ];
-
-const refSlug = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
 
 function RefAvatar({ official }: { official: RefWithPhoto }) {
   return (
