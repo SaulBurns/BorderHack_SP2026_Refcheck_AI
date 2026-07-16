@@ -9,8 +9,10 @@ import pytest
 import services.ai_analyzer as ai
 import scripts.run_demo_suite as suite
 from scripts.run_demo_suite import (
+    DEFAULT_MANIFEST,
     DemoClip,
     ManifestError,
+    build_parser,
     build_record,
     build_report,
     load_manifest,
@@ -292,3 +294,115 @@ def test_main_bad_manifest_returns_2(tmp_path):
     manifest.write_text(json.dumps([{"clip_id": "x"}]))  # missing required fields
     rc = main(["--manifest", str(manifest), "--provider", "mock"])
     assert rc == 2
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 — curated dataset fields, metrics, default manifest
+# ---------------------------------------------------------------------------
+
+def _curated_row(**overrides):
+    row = _valid_row(
+        scenario="charge",
+        expected_verdict="fair_call",
+        expected_rule_id="BLOCK_CHARGE",
+        rule_citation="NBA Rule 12B, Section I",
+        expected_confidence="high",
+    )
+    row.update(overrides)
+    return row
+
+def test_validate_clip_reads_curated_fields():
+    clip = validate_clip(_curated_row())
+    assert clip.scenario == "charge"
+    assert clip.expected_rule_id == "BLOCK_CHARGE"
+    assert clip.rule_citation == "NBA Rule 12B, Section I"
+    assert clip.expected_confidence == "high"
+
+def test_validate_clip_curated_fields_optional():
+    clip = validate_clip(_valid_row())  # none of the curated fields present
+    assert clip.scenario is None
+    assert clip.expected_rule_id is None
+    assert clip.rule_citation is None
+    assert clip.expected_confidence is None
+
+def test_build_record_surfaces_curated_fields_and_matches():
+    clip = validate_clip(_curated_row())
+    rec = build_record(clip, _mock_response("fair_call"))  # cites BLOCK_CHARGE, conf 0.7
+    assert rec["scenario"] == "charge"
+    assert rec["rule_citation"] == "NBA Rule 12B, Section I"
+    assert rec["expected_rule_id"] == "BLOCK_CHARGE"
+    assert rec["rule_matches_expected"] is True          # cited BLOCK_CHARGE
+    assert rec["confidence_meets_expectation"] is False   # 0.7 is not in the "high" band
+
+def test_build_record_rule_mismatch():
+    clip = validate_clip(_curated_row(expected_rule_id="TRAVEL"))
+    rec = build_record(clip, _mock_response("fair_call"))  # cites BLOCK_CHARGE
+    assert rec["rule_matches_expected"] is False
+
+def test_build_record_confidence_band_high_met():
+    clip = validate_clip(_curated_row(expected_confidence="high"))
+    resp = _mock_response("fair_call")
+    resp["verdict"]["confidence"] = 0.9
+    assert build_record(clip, resp)["confidence_meets_expectation"] is True
+
+def test_build_record_null_expected_rule_omits_rule_match():
+    clip = validate_clip(_curated_row(expected_rule_id=None))
+    rec = build_record(clip, _mock_response("fair_call"))
+    assert "rule_matches_expected" not in rec
+    assert "expected_rule_id" not in rec
+
+def test_build_report_aggregate_metrics():
+    clips = [
+        validate_clip(_curated_row(clip_id="c1", scenario="charge", expected_verdict="fair_call")),
+        validate_clip(_curated_row(clip_id="c2", scenario="travel", expected_verdict="bad_call",
+                                   expected_rule_id="TRAVEL", expected_confidence="medium")),
+    ]
+    records = [
+        build_record(clips[0], _mock_response("fair_call")),   # verdict match, rule BLOCK_CHARGE match
+        build_record(clips[1], _mock_response("bad_call")),    # verdict match, rule mismatch (cites BLOCK_CHARGE)
+    ]
+    s = build_report(records, provider="mock", detector=None)["summary"]
+    assert s["scenario_count"] == 2
+    assert s["scenarios_covered"] == ["charge", "travel"]
+    assert s["expected_verdict_matches"] == 2 and s["verdict_accuracy"] == 1.0
+    assert s["expected_rule_provided"] == 2 and s["rule_citation_matches"] == 1
+    assert s["rule_citation_accuracy"] == 0.5
+    assert s["verdict_distribution"] == {"fair_call": 1, "bad_call": 1, "inconclusive": 0}
+    assert s["average_confidence"] == 0.7
+
+def test_render_markdown_has_metrics_and_results_tables():
+    clip = validate_clip(_curated_row(notes="baseline"))
+    md = render_markdown(build_report([build_record(clip, _mock_response("fair_call"))], provider="mock", detector=None))
+    assert "### Aggregate metrics" in md
+    assert "Verdict accuracy" in md
+    assert "Rule-citation accuracy" in md
+    assert "## Results" in md
+    assert "charge" in md
+    assert "NBA Rule 12B, Section I" in md
+
+
+# ---------------------------------------------------------------------------
+# Shipped curated manifest + zero-argument default
+# ---------------------------------------------------------------------------
+
+_REQUIRED_SCENARIOS = {
+    "charge", "blocking_foul", "shooting_foul", "travel", "double_dribble",
+    "out_of_bounds", "goaltending", "illegal_screen", "verticality", "loose_ball_foul",
+}
+
+def test_shipped_manifest_covers_all_scenarios():
+    clips = load_manifest(DEFAULT_MANIFEST)
+    scenarios = {c.scenario for c in clips}
+    assert _REQUIRED_SCENARIOS.issubset(scenarios)
+
+def test_shipped_manifest_entries_are_fully_annotated():
+    for clip in load_manifest(DEFAULT_MANIFEST):
+        assert clip.scenario, clip.clip_id
+        assert clip.expected_verdict in ("fair_call", "bad_call", "inconclusive"), clip.clip_id
+        assert clip.rule_citation, clip.clip_id
+        assert clip.expected_confidence in ("high", "medium", "low"), clip.clip_id
+        assert clip.notes, clip.clip_id
+
+def test_default_manifest_used_when_arg_omitted():
+    args = build_parser().parse_args(["--provider", "mock"])
+    assert args.manifest == str(DEFAULT_MANIFEST)
