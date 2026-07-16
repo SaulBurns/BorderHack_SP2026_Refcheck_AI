@@ -1112,6 +1112,29 @@ def _detection_summary(detections: RawDetections | None) -> dict:
     }
 
 
+def _yolo_influence(detections: RawDetections | None, tracked_evidence: dict | None) -> dict:
+    """Diagnostics that make it obvious *when and how* YOLO shaped the verdict.
+
+    Reuses the already-computed `tracked_evidence` (no recomputation). `yolo_influenced`
+    is True whenever detections were available to feed adjudication; the remaining
+    flags show which specific signals (possession, defender, ball trajectory,
+    confidence calibration) actually reached the adjudicators/reconciliation.
+    """
+    evidence = tracked_evidence if isinstance(tracked_evidence, dict) else {}
+    tracking_confidence = evidence.get("tracking_confidence")
+    return {
+        "yolo_influenced": detections is not None,
+        "tracked_evidence_present": bool(evidence),
+        "tracking_confidence": tracking_confidence,
+        "possession_summary": evidence.get("possession_summary"),
+        "defender_tracked": evidence.get("defender_track_id") is not None,
+        "ball_trajectory_present": evidence.get("ball_movement") is not None,
+        # Reconciliation only nudges confidence when a tracking-confidence signal
+        # was available (see _reconcile / _build_response).
+        "influenced_reconciliation": tracking_confidence is not None,
+    }
+
+
 def _diagnostics_payload(
     provider_used: str,
     retrieval_query: str,
@@ -1119,12 +1142,14 @@ def _diagnostics_payload(
     detector: str | None = None,
     frames_analyzed: int = 0,
     fallback_reason: str | None = None,
+    tracked_evidence: dict | None = None,
 ) -> dict:
     """Additive diagnostics block to support evaluation and debugging (Phase 9/10B).
 
     Makes it obvious what actually ran: which detector path, whether detections
     (and stable track_ids) were produced, whether sport_details were enriched
-    from detections or came purely from perception, and compact debug counts.
+    from detections or came purely from perception, compact debug counts, and
+    (Sprint 2) whether/how YOLO tracking influenced the decision.
     Metadata status is attached later in analyze_clip once game_context resolves.
     """
     detector_path = detector or ("mock" if provider_used == "mock" else "unknown")
@@ -1144,6 +1169,7 @@ def _diagnostics_payload(
         "metadata_attempted": False,
         "metadata_status": "not_applicable",
         **summary,
+        **_yolo_influence(detections, tracked_evidence),
     }
 
 
@@ -1213,6 +1239,7 @@ def _build_response(
             detector=agent_result.get("detector"),
             frames_analyzed=len(frame_paths),
             fallback_reason=agent_result.get("fallback_reason"),
+            tracked_evidence=tracked_evidence,
         ),
     }
     if key_moment:
