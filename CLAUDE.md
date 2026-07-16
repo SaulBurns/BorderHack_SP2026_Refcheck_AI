@@ -268,6 +268,12 @@ above (see `backend/PERFORMANCE.md`).
   helpers/verdict maps. Interface style: providers use an ABC (`AIProvider`, for the
   shared `is_mock`); detectors/extractors use `Protocol`s — intentional, documented.
 
+### Judging docs & UX hardening (Sprint 8)
+
+- `docs/` holds the judge-facing deliverables: `JUDGE_CHEAT_SHEET.md`, `DEMO_WALKTHROUGH.md`, `ARCHITECTURE.md` (mermaid system + sequence diagrams), `TROUBLESHOOTING.md`, and `DEPLOYMENT_CHECKLIST.md`. The README links to all of them from a "For judges" section.
+- `frontend/src/lib/referees.ts` is the single source of truth for the demo referee roster + the `/ref/<slug>` slug helper (previously duplicated across `Leaderboard`/`RefLeaderboards`/`Feed`, and `RefProfile` ignored the slug and always rendered one referee). `RefProfile` now resolves the ref by slug and shows a graceful "REF NOT FOUND" empty state for unknown slugs.
+- `frontend/src/lib/api.ts` surfaces friendly error copy instead of raw `TypeError: Failed to fetch` / server HTML, and `getFeedItems()` never throws (a down backend yields an empty list, so the Feed falls back to demo clips).
+
 ### Deployment
 
 - **Backend → Render**: `render.yaml` at repo root; rootDir=`backend`; `runtime: docker` (`backend/Dockerfile` → `uvicorn main:app`). There is no `build.sh`.

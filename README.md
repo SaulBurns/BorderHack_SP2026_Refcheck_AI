@@ -1,12 +1,34 @@
 # RefCheck AI
 
-AI-powered sports officiating analysis demo for BorderHack. Users upload a short basketball clip, enter optional call details, and receive a verdict with rule-based reasoning.
+**Upload a sports clip + the call the ref made → get a verdict (fair / bad /
+inconclusive) with confidence, the cited rule, and the reasoning behind it.**
 
-Current stack:
+RefCheck AI is a **four-agent AI pipeline** for reviewing officiating calls: it *sees*
+the play, *looks up* the relevant rule, has **two independent adjudicators** argue it
+from opposite biases, then **reconciles** them into a final verdict. It runs on
+**Anthropic, Gemini, or fully offline** — switching is a single environment variable.
 
-- Frontend: Next.js
-- Backend: FastAPI
-- Analysis: ffmpeg frame extraction + four-agent Claude pipeline with mock fallback
+### 🏀 For judges — start here
+
+- **[Judge cheat sheet](docs/JUDGE_CHEAT_SHEET.md)** — the pitch, differentiators, and what to look at (1 page).
+- **[Demo walkthrough](docs/DEMO_WALKTHROUGH.md)** — three ways to demo, no API keys required.
+- **[Architecture](docs/ARCHITECTURE.md)** — diagrams + module map.
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** · **[Deployment checklist](docs/DEPLOYMENT_CHECKLIST.md)**
+
+Fastest look (offline, no keys):
+
+```bash
+cd backend && python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python scripts/run_demo_suite.py            # 10 curated scenarios → metrics report
+```
+
+### Stack
+
+- Frontend: Next.js 15 (App Router) — Verdict screen with an **AI reasoning overlay**
+- Backend: FastAPI — synchronous four-agent pipeline off the event loop
+- Analysis: ffmpeg frame extraction + provider-agnostic Claude/Gemini pipeline with mock fallback + optional YOLO tracking
+- Evaluation: offline benchmarking harness (accuracy/precision/recall/F1, calibration, latency, provider comparison)
 - Optional persistence: Supabase Postgres + Supabase Storage
 
 Supported providers (switching is a single env change — no code changes):
