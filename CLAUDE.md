@@ -81,6 +81,26 @@ analyze_clip(file, sport, ..., video_metadata)      services/ai_analyzer.py
        disagree / weak perception → inconclusive, damped confidence
 ```
 
+### Sport plugins (`backend/sports/`, Sprint 9)
+
+Sports are **plugins**. Each sport implements the `Sport` interface and is registered in a `SportRegistry`; the four-agent pipeline resolves one with `get_sport(sport)` and delegates all sport-specific behavior to it, so **`ai_analyzer.py` never checks `sport == "basketball"`**.
+
+```
+sports/
+  base.py         # Sport ABC: perception/retrieval/adjudicator prompts,
+                  #   boost_rule_score, sport_details, tracked_evidence, metadata_provider
+  registry.py     # SportRegistry + get_sport() (GenericSport fallback for unknown sports)
+  generic.py      # GenericSport — Claude-only, no tracking/game-context (hockey/soccer/lacrosse today)
+  basketball/     # first full implementation
+    sport.py      #   BasketballSport wiring
+    rules.py      #   basketball rule-retrieval boosts (moved out of services/analysis/retrieval.py)
+```
+
+- **What the plugin owns:** prompt selection (from the shared catalog), rule-retrieval boosts, sport-details extraction, tracking evidence, and the game-context metadata provider.
+- **How the generic services delegate to it:** `services/analysis/retrieval.py` calls `get_sport(sport).boost_rule_score(...)` (was an inline `if sport == "basketball"` boost table); `services/metadata/registry.py:get_metadata_provider(sport)` returns `get_sport(sport).metadata_provider()`; `ai_analyzer._run_four_agent_pipeline` uses `get_sport(sport).sport_details(...)` and `.tracked_evidence(...)`. These generic functions stay as the stable, monkeypatchable seams; only the *decision* moved into the plugin.
+- **Behavior is identical.** A `GenericSport` (name-carrying) is returned for any unregistered sport, reproducing the pre-plugin Claude-only path. Import cycles are avoided by lazy `from sports import get_sport` inside the delegating service functions.
+- **Adding a sport** (soccer/hockey/lacrosse): create a `Sport` subclass under `sports/<sport>/`, register it in `sports/registry.py`. The pipeline, providers, detectors, and evaluation need zero changes.
+
 ### The `services/analysis/` package (Sprint 7)
 
 `ai_analyzer.py` was ~1500 lines; its concerns were split into a package, leaving `ai_analyzer` as the orchestrator (~700 lines). Every name is re-imported into `ai_analyzer`, so `from services.ai_analyzer import ...` and `monkeypatch.setattr(ai, ...)` seams are unchanged.

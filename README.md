@@ -27,6 +27,7 @@ python scripts/run_demo_suite.py            # 10 curated scenarios → metrics r
 
 - Frontend: Next.js 15 (App Router) — Verdict screen with an **AI reasoning overlay**
 - Backend: FastAPI — synchronous four-agent pipeline off the event loop
+- Sports are **plugins** (`backend/sports/`): each sport owns its prompts, rules, tracking, and game context behind a `Sport` interface; the pipeline never checks `sport == "basketball"`. Adding soccer/hockey/lacrosse = one plugin + one registry line.
 - Analysis: ffmpeg frame extraction + provider-agnostic Claude/Gemini pipeline with mock fallback + optional YOLO tracking
 - Evaluation: offline benchmarking harness (accuracy/precision/recall/F1, calibration, latency, provider comparison)
 - Optional persistence: Supabase Postgres + Supabase Storage
