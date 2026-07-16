@@ -120,6 +120,24 @@ backend/services/ai/
 
 **Adding a future provider** (OpenAI, Azure, Grok, Ollama, …): (1) create one class implementing `AIProvider` under `providers/`, (2) register it in `factory._PROVIDERS`. The four-agent pipeline requires zero changes. Design principle for contributors: a provider only knows how to turn a system prompt + neutral content + temperature/max_tokens into a text reply — it must not import `ai_analyzer`, know about agents, or reshape JSON.
 
+### Hybrid perception grounding (YOLO tracked evidence)
+
+**Principle:** YOLO tracked detections are *supporting evidence only*. Claude Vision remains the semantic authority; detections ground the adjudicators' reasoning but never replace it, and never change the frontend API contract.
+
+**Detector paths** (`DETECTOR` env): `claude_vision` (semantic only, `detections=None`), `yolov8` (detections only), `hybrid` (Claude perception + YOLO detections). `hybrid` degrades gracefully: if YOLO inference fails (e.g. ultralytics missing, bad frame), `HybridDetector.detect` keeps Claude's perception and drops tracking (`detections=None`) instead of failing the analysis — the four-agent pipeline still runs, and diagnostics show `detections_present=False`.
+
+**How detections influence the verdict** (all in `_run_four_agent_pipeline` / `_build_response`, basketball-scoped):
+- `services/extractors/basketball_vision.py:summarize_tracked_evidence()` turns `RawDetections` into a compact evidence dict: offensive/defender `track_id`s, per-frame `possession_timeline`, `possession_changes`, ball-handler + defender movement, **ball's own `ball_movement`** (from `track_ball`, independent of any player), and a `tracking_confidence ∈ [0,1]`.
+- This evidence is attached to **both** adjudicator prompts (`_adjudicator_agent`, `TRACKED DETECTION EVIDENCE` section) alongside `sport_details` — computed once, passed to both.
+- `_reconcile` takes the evidence's `tracking_confidence` and applies a bounded ±0.05 nudge to the final confidence **only when the adjudicators agree** (calibrate, never decide).
+- `_frontend_perception` maps detection-derived signals into `sport_details` (the frontend block) — enrichment only; every legacy field is preserved.
+
+**Single-scan dedup:** the controlling player per frame is computed exactly once via `_scan_controllers`; `possession_status`, `identify_primary_defender`, `analyze_basketball`, and `summarize_tracked_evidence` all derive from that shared scan instead of re-scanning the frames.
+
+**Influence diagnostics:** `_diagnostics_payload` reuses the already-computed `tracked_evidence` (no recomputation) to expose `yolo_influenced`, `tracked_evidence_present`, `tracking_confidence`, `possession_summary`, `defender_tracked`, `ball_trajectory_present`, and `influenced_reconciliation` — so it is visible when and how YOLO shaped a decision.
+
+**Scope note:** the tracked-evidence layer is basketball-only for now (gated on `sport == "basketball"`); other sports get Claude-only perception, unchanged.
+
 ### Frontend (`frontend/`)
 
 Next.js 15 App Router. Six screens in `src/app/screens/` — `Home`, `Upload`, `Verdict`, `Feed`, `Leaderboard`, `RefProfile` — each has a thin page wrapper in `src/app/<route>/page.tsx`.
