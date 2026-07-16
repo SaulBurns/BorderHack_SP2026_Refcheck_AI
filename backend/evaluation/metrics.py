@@ -45,6 +45,69 @@ def per_class_metrics(records: list[EvaluationRecord]) -> dict[str, dict[str, fl
     return out
 
 
+def macro_averages(records: list[EvaluationRecord]) -> dict[str, float]:
+    """Unweighted mean of per-class precision/recall/F1 (treats classes equally)."""
+    per_class = per_class_metrics(records)
+    n = len(VERDICTS)
+    return {
+        metric: sum(per_class[v][metric] for v in VERDICTS) / n
+        for metric in ("precision", "recall", "f1")
+    }
+
+
+def micro_averages(records: list[EvaluationRecord]) -> dict[str, float]:
+    """Globally-pooled precision/recall/F1. For single-label multiclass these all
+    equal accuracy, but we compute them from pooled TP/FP/FN so the derivation is
+    explicit and stays correct if the label model ever changes."""
+    true_positive = sum(1 for r in records if r.ground_truth == r.predicted)
+    total = len(records)
+    # In single-label multiclass every prediction is exactly one class, so pooled
+    # FP == FN == total - TP, making precision == recall == f1.
+    precision = true_positive / total if total else 0.0
+    return {"precision": precision, "recall": precision, "f1": precision}
+
+
+def reliability_bins(
+    records: list[EvaluationRecord], n_bins: int = 10
+) -> list[dict[str, float]]:
+    """Calibration reliability table: for each confidence bin, the mean predicted
+    confidence vs. the observed accuracy. A well-calibrated model has these equal."""
+    bins: list[dict[str, float]] = []
+    for i in range(n_bins):
+        low = i / n_bins
+        high = (i + 1) / n_bins
+        # Include the top edge (1.0) in the final bin.
+        in_bin = [
+            r
+            for r in records
+            if (r.confidence >= low and (r.confidence < high or (i == n_bins - 1 and r.confidence <= high)))
+        ]
+        count = len(in_bin)
+        bins.append(
+            {
+                "bin_lower": round(low, 3),
+                "bin_upper": round(high, 3),
+                "count": count,
+                "avg_confidence": (sum(r.confidence for r in in_bin) / count) if count else 0.0,
+                "accuracy": (sum(1 for r in in_bin if r.correct) / count) if count else 0.0,
+            }
+        )
+    return bins
+
+
+def expected_calibration_error(records: list[EvaluationRecord], n_bins: int = 10) -> float:
+    """Expected Calibration Error: confidence-weighted average gap between predicted
+    confidence and observed accuracy across bins (0 = perfectly calibrated)."""
+    total = len(records)
+    if total == 0:
+        return 0.0
+    return sum(
+        (b["count"] / total) * abs(b["accuracy"] - b["avg_confidence"])
+        for b in reliability_bins(records, n_bins)
+        if b["count"]
+    )
+
+
 def cohens_kappa(records: list[EvaluationRecord]) -> float:
     """Chance-corrected agreement between ground truth and predictions."""
     n = len(records)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from evaluation.metrics import (
@@ -11,8 +11,12 @@ from evaluation.metrics import (
     cohens_kappa,
     confidence_by_correctness,
     confusion_matrix,
+    expected_calibration_error,
+    macro_averages,
     mean_confidence,
+    micro_averages,
     per_class_metrics,
+    reliability_bins,
 )
 from evaluation.models import (
     EvaluationRecord,
@@ -33,6 +37,11 @@ class EvaluationReport:
     confidence_incorrect: float
     confusion_matrix: dict
     per_class: dict
+    # Sprint 5 additions (default-populated so existing construction stays valid).
+    macro: dict = field(default_factory=dict)
+    micro: dict = field(default_factory=dict)
+    ece: float = 0.0
+    reliability: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -49,6 +58,10 @@ def evaluate(records: list[EvaluationRecord]) -> EvaluationReport:
         confidence_incorrect=confidence["incorrect"],
         confusion_matrix=confusion_matrix(records),
         per_class=per_class_metrics(records),
+        macro=macro_averages(records),
+        micro=micro_averages(records),
+        ece=expected_calibration_error(records),
+        reliability=reliability_bins(records),
     )
 
 
