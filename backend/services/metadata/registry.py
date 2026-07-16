@@ -1,21 +1,21 @@
-"""Metadata provider registry + orchestration (Phase 10A).
+"""Metadata provider registry + orchestration (Phase 10A; Sprint 9 sport plugins).
 
-Basketball-only for now: only "basketball" maps to a provider. Every other sport
-returns None, so non-basketball flows are untouched.
+The provider choice is owned by the Sport plugin: basketball maps to the NBA
+provider, every other sport returns None (so non-basketball flows are untouched).
+This module keeps `get_metadata_provider` / `resolve_clip_game_context` as the
+stable, testable seam the pipeline calls.
 """
 
 from __future__ import annotations
 
 from services.metadata.base import MetadataProvider
 from services.metadata.models import ClipMetadataRequest, ResolvedGameContext
-from services.metadata.nba_provider import NBAMetadataProvider
 
 
 def get_metadata_provider(sport: str) -> MetadataProvider | None:
     """Return the metadata provider for a sport, or None if unsupported."""
-    if (sport or "").lower().strip() == "basketball":
-        return NBAMetadataProvider()
-    return None
+    from sports import get_sport
+    return get_sport(sport).metadata_provider()
 
 
 def resolve_clip_game_context(

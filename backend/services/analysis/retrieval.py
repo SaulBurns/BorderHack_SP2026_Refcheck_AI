@@ -48,6 +48,16 @@ def _retrieve_rules(query: str, perception: PerceptionDict, sport: str, limit: i
     return list(_rank_rules(haystack, sport, limit))
 
 
+def _sport_boost(sport: str, rule_id: str, haystack: str) -> int:
+    """Sport-specific retrieval boost, owned by the Sport plugin (Sprint 9).
+
+    Lazy import breaks the sports<->services import cycle. Non-basketball sports
+    return 0, so ranking is unchanged for them.
+    """
+    from sports import get_sport
+    return get_sport(sport).boost_rule_score(rule_id, haystack)
+
+
 @lru_cache(maxsize=256)
 def _rank_rules(haystack: str, sport: str, limit: int) -> tuple[RuleRecord, ...]:
     scored: list[tuple[int, RuleRecord]] = []
@@ -56,45 +66,7 @@ def _rank_rules(haystack: str, sport: str, limit: int) -> tuple[RuleRecord, ...]
             f"{rule['rule_id']} {rule['section_title']} {rule['text']} {rule['call_type']}"
         ).lower()
         score = sum(1 for term in haystack.split() if term in rule_text)
-
-        if sport == "basketball":
-            if rule["rule_id"] == "BLOCK_CHARGE" and any(
-                t in haystack for t in ["charge", "blocking", "guarding", "lateral", "torso", "established"]
-            ):
-                score += 6
-            if rule["rule_id"] == "RESTRICTED_AREA" and any(
-                t in haystack for t in ["restricted", "secondary", "paint", "lane", "basket"]
-            ):
-                score += 8
-            if rule["rule_id"] == "VERTICALITY" and any(
-                t in haystack for t in ["vertical", "cylinder", "straight", "landing", "forward"]
-            ):
-                score += 7
-            if rule["rule_id"] == "AIRBORNE_SHOOTER" and any(
-                t in haystack for t in ["airborne", "shooter", "upward", "landing", "shooting"]
-            ):
-                score += 7
-            if rule["rule_id"] == "INCIDENTAL_CONTACT" and any(
-                t in haystack for t in ["incidental", "rhythm", "speed", "balance", "quickness", "marginal"]
-            ):
-                score += 7
-            if rule["rule_id"] == "SHOOTING_CONTACT" and any(
-                t in haystack for t in ["shoot", "shooter", "airborne", "arm", "landing", "verticality"]
-            ):
-                score += 6
-            if rule["rule_id"] == "TRAVEL" and any(
-                t in haystack for t in ["travel", "pivot", "gather", "steps", "dribble"]
-            ):
-                score += 6
-            if rule["rule_id"] == "OUT_OF_BOUNDS" and any(
-                t in haystack for t in ["out", "boundary", "sideline", "baseline", "last"]
-            ):
-                score += 6
-            if rule["rule_id"] == "GOALTENDING" and any(
-                t in haystack for t in ["goaltend", "downward", "cylinder", "rim", "interference"]
-            ):
-                score += 6
-
+        score += _sport_boost(sport, rule["rule_id"], haystack)
         scored.append((score, rule))
 
     return tuple(
