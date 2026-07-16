@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -115,7 +116,11 @@ async def analyze_video(
     referee_name: str | None = Form(None),
 ):
     video_metadata = await save_uploaded_clip(file)
-    result = analyze_clip(
+    # analyze_clip is a blocking, multi-second CPU+network pipeline. Run it in a
+    # worker thread so it does not stall the event loop and block other requests
+    # (Sprint 6 perf). The returned response is identical.
+    result = await asyncio.to_thread(
+        analyze_clip,
         file=file,
         sport=sport,
         level_of_play=level_of_play,
@@ -145,7 +150,10 @@ async def analyze_video_for_frontend(
 ):
     logger.info("[RefCheck] /api/analyze received sport=%r file=%r", sport, file.filename)
     video_metadata = await save_uploaded_clip(file)
-    result = analyze_clip(
+    # Offload the blocking pipeline to a worker thread (Sprint 6 perf); identical
+    # response, but the event loop stays free to serve concurrent requests.
+    result = await asyncio.to_thread(
+        analyze_clip,
         file=file,
         sport=sport,
         level_of_play=level,

@@ -27,6 +27,13 @@ pytest tests/test_schemas.py::test_adjudicator_output_roundtrip -v
 
 # Syntax/import check (no venv needed for this quick check)
 python3 -m compileall app/
+
+# Performance benchmark (offline; Sprint 6). Exercises the real analyze_clip
+# orchestration with a simulated-latency provider — no network/key needed.
+# One-time: create a real clip so frame extraction runs:
+#   ffmpeg -y -f lavfi -i testsrc=duration=4:size=640x480:rate=15 \
+#     -pix_fmt yuv420p /tmp/refcheck_bench/bench_clip.mp4
+python scripts/perf_benchmark.py --iterations 6 --output after.json
 ```
 
 ### Frontend (run from `frontend/`)
@@ -195,6 +202,49 @@ The Verdict screen renders an **AI Reasoning Overlay** on the uploaded clip via 
 - **Rendering components:** `ReasoningOverlay.tsx` (SVG/CSS layers over the video), `ReasoningTimelines.tsx` (`PossessionTimeline` / `EventTimeline` / `KeyFrameNav`), composed by `AiReasoningPanel.tsx`, which owns the `<video>` ref so timeline/key-frame clicks seek playback.
 
 Run `npm run build` (or `npm test` for the overlay units) after touching these.
+
+### Performance optimizations (Sprint 6)
+
+The four-agent pipeline was profiled and optimized for latency, redundant model
+calls, and memory. **The API contract is unchanged**: every optimization is a
+transparent internal change or opt-in behind an env flag (default OFF). Full
+write-up with before/after numbers: `backend/PERFORMANCE.md`. Benchmark harness:
+`backend/scripts/perf_benchmark.py` (offline; simulated-latency provider).
+
+Headline results (offline benchmark, 6 iterations): warm frame extraction
+101.8 ms → 0.14 ms; orchestration overhead 105.6 ms → 1.8 ms; network-bound
+analysis 2144 ms → 1517 ms (−29%); repeat identical analysis (with
+`ANALYSIS_CACHE=1`) 4 → 0 Claude calls.
+
+What changed (all in `services/ai_analyzer.py` unless noted):
+- **Concurrent adjudicators.** A (conservative) and B (skeptical) are independent
+  model calls; they now run on a 2-worker `ThreadPoolExecutor` (provider socket
+  I/O releases the GIL, so they overlap). Errors re-raise via `future.result()`
+  into the existing `except`, preserving the exact mock-fallback behavior.
+- **Frame-extraction cache.** `_extract_frames` reuses frames already on disk for
+  a `clip_id` (a hash of stored path + byte size), skipping `ffprobe`+`ffmpeg` on
+  re-analysis. Frame content is byte-for-byte identical.
+- **Adjudicator prompt built once.** Both adjudicators receive an identical user
+  prompt (only system framing/temperature differ); `_build_adjudicator_prompt`
+  builds it once instead of serializing the perception+rules payload twice.
+- **Rule caches.** `_rule_records(sport)` is `@lru_cache`-d (immutable tuple) and
+  `_rank_rules(haystack, sport, limit)` memoizes the pure ranking step;
+  `_retrieve_rules` still returns a fresh `list`.
+- **Provider-instance cache.** `_active_provider()` caches the resolved provider
+  keyed on the `AI_PROVIDER` value (re-resolves on change); `get_provider()`
+  stays the pure factory seam. `_reset_provider_cache()` for tests/benchmarks.
+- **Async route offload (`main.py`).** `/analyze` and `/api/analyze` call the
+  blocking pipeline via `await asyncio.to_thread(...)` so it no longer stalls the
+  event loop. Identical response.
+- **Opt-in result cache.** `ANALYSIS_CACHE` (truthy = on; default OFF) memoizes
+  the full response by `(clip_id, sport, level, league, original_call, referee,
+  provider, model)`, so a repeat analysis returns a deep copy with zero model
+  calls. Off by default because adjudicator B is temperature 0.7 (re-running is
+  intentionally non-deterministic unless caching is enabled).
+
+Note: there are **no embeddings/FAISS** in this pipeline — retrieval is
+keyword-based — so "cache embeddings" maps to the rule-corpus/ranking caches
+above (see `backend/PERFORMANCE.md`).
 
 ### Deployment
 
