@@ -10,6 +10,7 @@ import {
   possessionSegments,
   type ImpactZone,
 } from "../../lib/overlay";
+import { overlayVocab } from "../../lib/sports";
 import ReasoningOverlay, { type OverlayLayers } from "./ReasoningOverlay";
 import { EventTimeline, KeyFrameNav, PossessionTimeline } from "./ReasoningTimelines";
 
@@ -29,10 +30,10 @@ const DEFAULT_LAYERS: OverlayLayers = {
   arrows: true,
 };
 
-const LAYER_OPTIONS: Array<{ key: keyof OverlayLayers; label: string }> = [
+const layerOptions = (objectLabel: string): Array<{ key: keyof OverlayLayers; label: string }> => [
   { key: "offense", label: "Offense" },
   { key: "defender", label: "Defender" },
-  { key: "ball", label: "Ball" },
+  { key: "ball", label: objectLabel },
   { key: "arrows", label: "Movement" },
   { key: "impact", label: "Impact zone" },
   { key: "heatmap", label: "Confidence heat" },
@@ -52,6 +53,8 @@ export default function AiReasoningPanel({
   const perception = data.verdict.perception;
   const diagnostics = data.diagnostics;
   const confidence = data.verdict.confidence;
+  const sport = perception.sport;
+  const vocab = overlayVocab(sport);
 
   const impact: ImpactZone = perception.impact_zone ?? {
     x_percent: 50,
@@ -60,7 +63,10 @@ export default function AiReasoningPanel({
     label: "Estimated impact zone",
   };
 
-  const markers = useMemo(() => buildOverlayMarkers(perception, impact), [perception, impact]);
+  const markers = useMemo(
+    () => buildOverlayMarkers(perception, impact, sport),
+    [perception, impact, sport],
+  );
   const events = useMemo(
     () => buildEventTimeline(perception, data.key_moment?.approximate_seconds),
     [perception, data.key_moment?.approximate_seconds],
@@ -69,9 +75,14 @@ export default function AiReasoningPanel({
     () => buildKeyFrames(perception, data.key_moment),
     [perception, data.key_moment],
   );
+  // Possession comes from the sport-agnostic tracked-evidence diagnostics; the
+  // basketball offensive_control_status (when present) is a graceful fallback for
+  // the Claude-only path. Reading it by sport key avoids assuming basketball.
+  const sportBlock = perception.sport_details?.[sport] as
+    | { offensive_control_status?: string }
+    | undefined;
   const offensiveControl =
-    perception.sport_details?.basketball?.offensive_control_status ??
-    perception.offensive_control_status;
+    sportBlock?.offensive_control_status ?? perception.offensive_control_status;
   const segments = useMemo(
     () => possessionSegments(diagnostics?.possession_summary, offensiveControl),
     [diagnostics?.possession_summary, offensiveControl],
@@ -99,7 +110,7 @@ export default function AiReasoningPanel({
   const ballTracked = diagnostics?.ball_present ?? markers.some((m) => m.kind === "ball");
   const stats: Array<{ label: string; value: string }> = [
     { label: "Players tracked", value: String(playerCount) },
-    { label: "Ball", value: ballTracked ? "tracked" : "not seen" },
+    { label: vocab.object, value: ballTracked ? "tracked" : "not seen" },
     {
       label: "Possession",
       value: (diagnostics?.possession_summary ?? offensiveControl ?? "unclear").replace(/_/g, " "),
@@ -127,7 +138,7 @@ export default function AiReasoningPanel({
 
       {/* Layer toggles */}
       <div className="mb-4 flex flex-wrap gap-2">
-        {LAYER_OPTIONS.map((option) => {
+        {layerOptions(vocab.object).map((option) => {
           const on = layers[option.key];
           return (
             <button

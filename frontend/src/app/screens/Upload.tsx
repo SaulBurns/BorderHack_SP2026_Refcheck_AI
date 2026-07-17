@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, Check, Circle, Clock3, FileVideo } from "lucide-react";
 import { analyzeClip, cacheVerdict, cacheLocalVideoUrl } from "../../lib/api";
-import { SPORTS, DEFAULT_SPORT_ID, getSport, isPreviewSport } from "../../lib/sports";
+import { SPORTS, DEFAULT_SPORT_ID, getSport } from "../../lib/sports";
 
 const loadingSteps = [
   "Extracting frames from video...",
@@ -82,7 +82,6 @@ export default function Upload() {
   };
 
   const sport = getSport(selectedSport);
-  const previewSelected = isPreviewSport(selectedSport);
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-16">
@@ -114,23 +113,10 @@ export default function Upload() {
                 >
                   <option.Icon className="mx-auto mb-2 h-8 w-8" />
                   <div className="text-sm">{option.name}</div>
-                  {option.supportLevel === "preview" && (
-                    <div className="absolute -top-2 -right-2 bg-[#F6B40F] text-xs px-2 py-1 rounded transform rotate-12 shadow-sm">
-                      Preview
-                    </div>
-                  )}
                 </button>
               ))}
             </div>
           </div>
-
-          {previewSelected && (
-            <div className="bg-[#F6B40F]/10 border-2 border-[#F6B40F] text-sm p-4 rounded-lg font-mono">
-              <span className="font-semibold">{sport.name} is in preview.</span>{" "}
-              AI analysis is experimental and the {sport.rulebookName} isn&apos;t fully configured yet — expect an
-              inconclusive result. Basketball has full AI support today.
-            </div>
-          )}
 
           {/* Upload Zone */}
           <div>

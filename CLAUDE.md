@@ -241,16 +241,24 @@ Next.js 15 App Router. Six screens in `src/app/screens/` — `Home`, `Upload`, `
 
 The only file that talks to the backend is `src/lib/api.ts`. It reads `NEXT_PUBLIC_API_BASE` (must be set at **build time** for Vercel, not just runtime). `analyzeClip()` POSTs multipart form data; the verdict is cached in `sessionStorage` keyed by `clip_id` so the verdict page survives a reload without re-calling the API.
 
+#### Sport-agnostic UI (Sprint 13)
+
+**The frontend never assumes basketball.** Every rendering path is sport-aware, mirroring the backend's self-contained Sport plugins — a new backend sport renders with no frontend change.
+
+- **UI sport registry (`src/lib/sports.ts`)** is the single source of truth: each of the four sports has full support (no more "preview" concept) plus an `overlay` vocabulary (`offense`/`defense`/`object` labels, e.g. hockey → "Puck carrier"/"Puck"). `overlayVocab(sport)` returns a neutral default for any unknown sport.
+- **Dynamic `sport_details` rendering (`src/lib/sportDetails.ts`).** `dynamicSportDetailRows(sport, perception)` walks whatever fields `perception.sport_details[sport]` contains (booleans → yes/no, strings → humanized, nested blocks flattened) and returns labeled rows — so a brand-new sport's signals render field-by-field with no bespoke code. `diagnosticRows(diagnostics)` renders the tracked-evidence/pipeline diagnostics the same way. Both are pure and unit-tested (`sportDetails.test.ts`). `SportDetailsMap` in `types.ts` has an index signature so a sport block can be read dynamically by name.
+- **Verdict screen** shows sport-agnostic panels: the verdict banner + **confidence**, the **Ref Review Checklist** (neutral rows + sport-aware rows from `sportEvidence.ts`), a **`<Sport>` Signals** panel (`dynamicSportDetailRows`), an **Analysis Diagnostics** panel (`diagnosticRows`, i.e. tracked evidence), the **rulebook citation** block (reads `verdict.cited_rule` generically), and the game-context block (label derived from `game_context.provider`, not hardcoded "NBA").
+
 #### AI reasoning overlay (Verdict screen)
 
-The Verdict screen renders an **AI Reasoning Overlay** on the uploaded clip via `src/app/components/AiReasoningPanel.tsx`. It layers: tracked players (offense/defender markers), the tracked ball, the impact zone, movement arrows, a confidence heatmap, a possession timeline, an event timeline, and key-frame navigation. Layers are individually toggleable.
+The Verdict screen renders a **sport-aware AI Reasoning Overlay** on the uploaded clip via `src/app/components/AiReasoningPanel.tsx`. It layers: tracked players, the tracked ball/puck, the impact zone, movement arrows, a confidence heatmap, a possession timeline, an event timeline, and key-frame navigation. Layers are individually toggleable. Marker labels and the object label come from the sport's `overlayVocab`; possession is read from the sport-agnostic `diagnostics.possession_summary` (with the basketball `offensive_control_status` as a graceful fallback, read by sport key — never assuming basketball).
 
-- **No backend API change.** The overlay is built entirely from data the `/api/analyze` response already returns: `verdict.perception` (impact zone, `players_involved`, `frame_observations`, `sport_details`), `verdict.confidence`, `key_moment`, and the `diagnostics` block (player/ball counts, `possession_summary`, `tracking_confidence`, movement) — the last of which was already emitted by the backend and is now mirrored in `src/lib/types.ts` (`Diagnostics`).
-- **Pure geometry is isolated and unit-tested.** `src/lib/overlay.ts` holds the framework-free helpers (`buildOverlayMarkers`, `movementVector`, `buildEventTimeline`, `buildKeyFrames`, `possessionSegments`), covered by `src/lib/overlay.test.ts` (`npm test`).
+- **No backend API change.** The overlay is built entirely from data the `/api/analyze` response already returns: `verdict.perception` (impact zone, `players_involved`, `frame_observations`, `sport_details`), `verdict.confidence`, `key_moment`, and the `diagnostics` block, mirrored in `src/lib/types.ts` (`Diagnostics`).
+- **Pure geometry is isolated and unit-tested.** `src/lib/overlay.ts` holds the framework-free helpers (`buildOverlayMarkers(perception, impact, sport)`, `movementVector` — sport-neutral labels, `buildEventTimeline`, `buildKeyFrames`, `possessionSegments`), covered by `src/lib/overlay.test.ts`.
 - **Honest positioning.** The backend does not expose raw per-frame CV bounding boxes, so player/ball markers use an AI-reasoning layout anchored on the real impact zone and driven by the detected roles/possession/movement — labeled as approximate in the UI. Everything else (impact zone, confidence, possession, timelines) is real response data.
 - **Rendering components:** `ReasoningOverlay.tsx` (SVG/CSS layers over the video), `ReasoningTimelines.tsx` (`PossessionTimeline` / `EventTimeline` / `KeyFrameNav`), composed by `AiReasoningPanel.tsx`, which owns the `<video>` ref so timeline/key-frame clicks seek playback.
 
-Run `npm run build` (or `npm test` for the overlay units) after touching these.
+Run `npm run build` (or `npm test` for the pure units: `overlay`, `sportEvidence`, `sportDetails`) after touching these.
 
 ### Performance optimizations (Sprint 6)
 

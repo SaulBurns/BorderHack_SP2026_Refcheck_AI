@@ -68,11 +68,14 @@ export type SportDetails =
   | LacrosseDetails;
 
 // Backend emits sport_details keyed by sport name (e.g. sport_details.basketball).
+// The index signature lets the UI read a sport's block dynamically by name, so a
+// sport the frontend doesn't know statically (a new backend plugin) still renders.
 export interface SportDetailsMap {
   basketball?: BasketballDetails;
   hockey?: HockeyDetails;
   soccer?: SoccerDetails;
   lacrosse?: LacrosseDetails;
+  [sport: string]: unknown;
 }
 
 export interface EventDescription {

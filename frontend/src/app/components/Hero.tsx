@@ -53,9 +53,6 @@ export default function Hero() {
         {SPORTS.map((sport) => (
           <div key={sport.id} className="flex items-center gap-2">
             <sport.Icon className="h-4 w-4" /> {sport.name}
-            {sport.supportLevel === "preview" && (
-              <span className="text-xs opacity-70">(preview)</span>
-            )}
           </div>
         ))}
       </div>

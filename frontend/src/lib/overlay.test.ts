@@ -46,7 +46,8 @@ describe("movementVector", () => {
     expect(movementVector("lateral")?.angleDeg).toBe(0);
     expect(movementVector("vertical")?.angleDeg).toBe(-90);
     expect(movementVector("forward")?.angleDeg).toBe(90);
-    expect(movementVector("driving")?.label).toContain("rim");
+    // Labels are sport-neutral (no basketball vocabulary).
+    expect(movementVector("driving")?.label).toContain("driving");
   });
 
   it("returns null for stationary/unknown", () => {
@@ -96,7 +97,36 @@ describe("buildOverlayMarkers", () => {
     expect(markers.find((m) => m.kind === "defense")?.label).toBe("Defender");
     // defender movement uses moving_direction; offense uses offensive_control.
     expect(markers.find((m) => m.kind === "defense")?.movement?.angleDeg).toBe(0); // lateral
-    expect(markers.find((m) => m.kind === "offense")?.movement?.label).toContain("rim");
+    expect(markers.find((m) => m.kind === "offense")?.movement?.label).toContain("driving");
+  });
+
+  it("uses sport-aware marker labels", () => {
+    const players = [
+      { role: "offense" as const, jersey_color: "red", position_description: "x", body_state: "y" },
+      { role: "defense" as const, jersey_color: "blue", position_description: "x", body_state: "y" },
+    ];
+    const soccer = buildOverlayMarkers(
+      makePerception({ sport: "soccer", ball_visible: true, players_involved: players }),
+      IMPACT,
+      "soccer",
+    );
+    expect(soccer.find((m) => m.kind === "offense")?.label).toBe("Attacker");
+    expect(soccer.find((m) => m.kind === "ball")?.label).toBe("Ball");
+
+    const hockey = buildOverlayMarkers(
+      makePerception({ sport: "hockey", ball_visible: true, players_involved: players }),
+      IMPACT,
+      "hockey",
+    );
+    expect(hockey.find((m) => m.kind === "offense")?.label).toBe("Puck carrier");
+    expect(hockey.find((m) => m.kind === "ball")?.label).toBe("Puck");
+
+    // Defaults to the perception's sport when no explicit sport is passed.
+    const lacrosse = buildOverlayMarkers(
+      makePerception({ sport: "lacrosse", players_involved: players }),
+      IMPACT,
+    );
+    expect(lacrosse.find((m) => m.kind === "offense")?.label).toBe("Ball carrier");
   });
 
   it("omits the ball marker when the ball is not visible", () => {

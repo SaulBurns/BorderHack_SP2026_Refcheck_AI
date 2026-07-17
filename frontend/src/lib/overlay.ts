@@ -12,6 +12,7 @@
 // roles/possession/movement. Everything here is derived from real response data.
 
 import type { EventDescription } from "./types";
+import { overlayVocab } from "./sports";
 
 export type MarkerKind = "offense" | "defense" | "ball";
 
@@ -72,24 +73,47 @@ const humanize = (value: string | null | undefined): string =>
   value ? value.replace(/_/g, " ") : "unclear";
 
 /**
- * Map a coarse image-space direction word (from defender_status.moving_direction
- * or offensive_control_status) to an arrow vector. Returns null when the subject
- * is stationary or the direction is unknown, so callers draw no arrow.
+ * Map a coarse image-space direction word (from a sport's directional signals) to
+ * an arrow vector. Labels are sport-neutral. Returns null when the subject is
+ * stationary or the direction is unknown, so callers draw no arrow.
  */
 export function movementVector(direction: string | null | undefined): MovementVector | null {
   switch ((direction || "").toLowerCase().trim()) {
     case "lateral":
       return { dx: 1, dy: 0, angleDeg: 0, label: "moving laterally" };
-    case "vertical": // upward in image space (toward the basket)
-      return { dx: 0, dy: -1, angleDeg: -90, label: "rising / vertical" };
-    case "forward": // downward in image space (driving toward camera/baseline)
-      return { dx: 0, dy: 1, angleDeg: 90, label: "driving forward" };
+    case "vertical": // upward in image space
+      return { dx: 0, dy: -1, angleDeg: -90, label: "moving up" };
+    case "forward": // downward in image space (toward camera / attacking end)
+      return { dx: 0, dy: 1, angleDeg: 90, label: "moving forward" };
     case "driving":
     case "dribbling":
-      return { dx: -1, dy: 1, angleDeg: 135, label: "attacking the rim" };
+    case "carrying":
+      return { dx: -1, dy: 1, angleDeg: 135, label: "driving with the ball" };
     default:
       return null;
   }
+}
+
+interface DirectionalHints {
+  offensiveControl?: string;
+  defenderDirection?: string;
+}
+
+/**
+ * Read the directional signals for the sport, if the sport's detail block exposes
+ * them (basketball's defender_status / offensive_control_status). Falls back to
+ * the legacy top-level fields. Sports without directional data yield no hints, so
+ * no movement arrows are drawn — a graceful, sport-agnostic default.
+ */
+function directionalHints(perception: EventDescription, sportKey: string): DirectionalHints {
+  const block = perception.sport_details?.[sportKey] as
+    | { offensive_control_status?: string; defender_status?: { moving_direction?: string } }
+    | undefined;
+  return {
+    offensiveControl: block?.offensive_control_status ?? perception.offensive_control_status,
+    defenderDirection:
+      block?.defender_status?.moving_direction ?? perception.defender_status?.moving_direction,
+  };
 }
 
 interface PlacementSpec {
@@ -105,21 +129,24 @@ const FAN_STEP = 11;
 
 /**
  * Build player + ball markers positioned around the impact zone from the AI's
- * perception. Deterministic so the same analysis always renders the same layout.
+ * perception. Sport-aware: marker labels come from the sport's overlay vocabulary
+ * (`sports.ts`), so the layout reads correctly for basketball, soccer, hockey,
+ * lacrosse, or any future sport (neutral default). Deterministic so the same
+ * analysis always renders the same layout.
  */
 export function buildOverlayMarkers(
   perception: EventDescription,
   impact: ImpactZone,
+  sport: string = perception.sport,
 ): OverlayMarker[] {
   const cx = clamp(impact.x_percent, 6, 94);
   const cy = clamp(impact.y_percent, 6, 94);
   const markers: OverlayMarker[] = [];
 
+  const sportKey = (sport || "").toLowerCase().trim();
+  const vocab = overlayVocab(sportKey);
   const players = perception.players_involved ?? [];
-  const details = perception.sport_details?.basketball;
-  const defenderStatus = details?.defender_status ?? perception.defender_status;
-  const offensiveControl =
-    details?.offensive_control_status ?? perception.offensive_control_status;
+  const { offensiveControl, defenderDirection } = directionalHints(perception, sportKey);
 
   let offenseSeen = 0;
   let defenseSeen = 0;
@@ -132,7 +159,7 @@ export function buildOverlayMarkers(
     const y = clamp(cy + anchor.dy + rank * 4, 4, 96);
     const primary = rank === 0;
     const movement = isDefense
-      ? movementVector(defenderStatus?.moving_direction)
+      ? movementVector(defenderDirection)
       : movementVector(offensiveControl);
     markers.push({
       id: `player-${index}`,
@@ -141,11 +168,11 @@ export function buildOverlayMarkers(
       y,
       label: isDefense
         ? primary
-          ? "Defender"
-          : "Help defense"
+          ? vocab.defense
+          : vocab.defenseSecondary
         : primary
-          ? "Ball handler"
-          : "Off-ball offense",
+          ? vocab.offense
+          : vocab.offenseSecondary,
       sublabel: [player.jersey_color, humanize(player.body_state)]
         .filter(Boolean)
         .join(" · "),
@@ -162,7 +189,7 @@ export function buildOverlayMarkers(
       kind: "ball",
       x: cx,
       y: cy,
-      label: "Ball",
+      label: vocab.object,
       sublabel: humanize(perception.ball_state),
       primary: true,
       movement: movementVector(offensiveControl),
