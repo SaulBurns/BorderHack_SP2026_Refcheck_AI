@@ -13,7 +13,7 @@ from opposite biases, then **reconciles** them into a final verdict. It runs on
 - **[Judge cheat sheet](docs/JUDGE_CHEAT_SHEET.md)** — the pitch, differentiators, and what to look at (1 page).
 - **[Demo walkthrough](docs/DEMO_WALKTHROUGH.md)** — three ways to demo, no API keys required.
 - **[Architecture](docs/ARCHITECTURE.md)** — diagrams + module map.
-- **[Troubleshooting](docs/TROUBLESHOOTING.md)** · **[Deployment checklist](docs/DEPLOYMENT_CHECKLIST.md)**
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** · **[Deployment checklist](docs/DEPLOYMENT_CHECKLIST.md)** · **[Production deployment guide](docs/PRODUCTION_DEPLOYMENT.md)**
 
 Fastest look (offline, no keys):
 
@@ -203,6 +203,21 @@ cd backend
 source venv/bin/activate
 python3 -m compileall main.py rules services
 ```
+
+## Production readiness (Sprint 15)
+
+The backend ships production hardening — **all additive, no breaking API changes**
+(everything is off or backward-compatible by default). Full guide:
+**[docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCTION_DEPLOYMENT.md)**.
+
+- **Auth** — optional API-key auth on the write endpoints (`X-API-Key` / `Bearer`), enabled by setting `API_KEYS`. Off = open (unchanged).
+- **Rate limiting** — per-client fixed window on the analyze endpoints, enabled by `RATE_LIMIT_PER_MINUTE`.
+- **Structured logging** — JSON logs with `request_id`, path, status, `duration_ms` (`LOG_FORMAT`/`LOG_LEVEL`).
+- **Metrics** — `GET /api/metrics` in Prometheus text format (requests, latency, analyses, rate-limit/auth rejections).
+- **Health** — `GET /api/health` (liveness, backward-compatible), `GET /api/health/ready` (readiness: provider/ffmpeg/disk), `GET /api/version`.
+- **Monitoring** — every response carries an `X-Request-ID` for tracing.
+- **Docker** — multi-stage, non-root, `HEALTHCHECK`; `.dockerignore` keeps the image lean and secret-free.
+- **Overhead** — the middleware adds ~0.3 ms/request; the analysis pipeline is unchanged (`scripts/prod_overhead_benchmark.py`).
 
 ## Deployment
 

@@ -90,7 +90,10 @@ disagreement or weak perception → `inconclusive` with damped confidence.
 
 | Path | Responsibility |
 |------|----------------|
-| `main.py` | FastAPI app: `/api/analyze`, `/api/feed`, media routes, CORS, health. |
+| `main.py` | FastAPI app: `/api/analyze`, `/api/feed`, media routes, CORS, health/readiness/version/metrics, and the observability middleware (request-id, structured logging, metrics, optional auth + rate limiting). |
+| `services/observability/` | Structured JSON logging + in-process Prometheus metrics registry (Sprint 15). |
+| `services/security/` | Optional API-key auth + fixed-window rate limiting, both off by default (Sprint 15). |
+| `services/health.py` | Liveness + readiness (provider/ffmpeg/upload-dir checks) reporting. |
 | `services/ai_analyzer.py` | Pipeline orchestration, reconciliation, diagnostics, caches. |
 | `services/ai/` | Provider abstraction (`AIProvider` + `anthropic` / `gemini` / `mock` + factory). |
 | `sports/` | **Sport plugins** (`Sport` interface + `SportRegistry` + `basketball/` + `GenericSport` fallback). Owns per-sport prompts, rule boosts, sport-details, tracking, and game context; the pipeline resolves one via `get_sport(sport)` — no `sport == "basketball"` checks. |
