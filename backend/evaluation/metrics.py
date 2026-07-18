@@ -6,6 +6,7 @@ than raising, so a report can always be produced.
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 
 from evaluation.models import VERDICTS, EvaluationRecord
@@ -106,6 +107,38 @@ def expected_calibration_error(records: list[EvaluationRecord], n_bins: int = 10
         for b in reliability_bins(records, n_bins)
         if b["count"]
     )
+
+
+def brier_score(records: list[EvaluationRecord]) -> float:
+    """Confidence Brier score: mean squared error between the stated confidence and
+    the binary correctness outcome (0 = perfect, 0.25 = uninformative-at-0.5, 1 =
+    worst). A proper scoring rule that rewards *calibrated* confidence, unlike raw
+    accuracy — a model that is confident when right and uncertain when wrong scores
+    low. Lower is better."""
+    if not records:
+        return 0.0
+    return sum((r.confidence - (1.0 if r.correct else 0.0)) ** 2 for r in records) / len(records)
+
+
+def matthews_corrcoef(records: list[EvaluationRecord]) -> float:
+    """Multiclass Matthews correlation coefficient in [-1, 1] (0 = random, 1 =
+    perfect). More robust than accuracy on imbalanced verdict distributions because
+    it accounts for all cells of the confusion matrix. Computed from the pooled
+    confusion matrix via the standard multiclass formula."""
+    n = len(records)
+    if n == 0:
+        return 0.0
+    true_counts = Counter(r.ground_truth for r in records)
+    pred_counts = Counter(r.predicted for r in records)
+    correct = sum(1 for r in records if r.ground_truth == r.predicted)
+
+    covariance = correct * n - sum(pred_counts[c] * true_counts[c] for c in VERDICTS)
+    pred_var = n * n - sum(pred_counts[c] ** 2 for c in VERDICTS)
+    true_var = n * n - sum(true_counts[c] ** 2 for c in VERDICTS)
+    denominator = math.sqrt(pred_var * true_var)
+    if denominator == 0:
+        return 0.0
+    return covariance / denominator
 
 
 def cohens_kappa(records: list[EvaluationRecord]) -> float:

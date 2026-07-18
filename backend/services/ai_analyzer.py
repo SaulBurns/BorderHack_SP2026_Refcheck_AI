@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import re
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
@@ -13,6 +14,7 @@ from fastapi import UploadFile
 from services import config
 from services.ai import get_provider, image_part, text_part
 from services.ai.provider import AIProvider, MessageContent
+from services.analysis.calibration import calibrate_confidence
 from services.analysis.contracts import AgentResult, RuleRecord
 from services.analysis.diagnostics import _diagnostics_payload
 from services.analysis.frames import FRAME_DIR, _extract_frames
@@ -141,20 +143,45 @@ def _safe_float(value: Any, fallback: float) -> float:
     return max(0.0, min(1.0, number))
 
 
-def _extract_json(text: str) -> dict:
-    """Shared JSON extraction for every provider's raw text reply.
+# Private chain-of-thought the model may emit before its JSON. Stripped so the
+# reasoning stays isolated from the parsed verdict and can never break parsing
+# (e.g. an illustrative `{...}` inside the scratchpad). Case-insensitive, spans
+# newlines. Matches whether or not the closing tag is present (truncated output).
+_COT_BLOCK_RE = re.compile(
+    r"<(thinking|scratchpad|reasoning|analysis)>.*?(</\1>|$)",
+    re.IGNORECASE | re.DOTALL,
+)
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.IGNORECASE | re.DOTALL)
 
-    Provider-agnostic on purpose: providers return plain text and this one parser
-    turns it into a dict, so parsing logic is never duplicated per provider.
+
+def _extract_json(text: str) -> dict:
+    """Shared JSON extraction for every provider's raw text reply (Sprint 14).
+
+    Chain-of-thought isolation: the adjudicator/perception prompts let the model
+    reason in a private `<thinking>`/`<scratchpad>` block before emitting its JSON.
+    We strip those blocks first, then prefer a fenced ```json block, then fall back
+    to the outermost braces — so private reasoning never leaks into or corrupts the
+    parsed result. Provider-agnostic: one parser for every provider's raw text.
     """
+    cleaned = _COT_BLOCK_RE.sub("", text).strip()
+
     try:
-        return json.loads(text)
+        return json.loads(cleaned)
     except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            raise
-        return json.loads(text[start : end + 1])
+        pass
+
+    fenced = _JSON_FENCE_RE.search(cleaned)
+    if fenced:
+        try:
+            return json.loads(fenced.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return json.loads(cleaned)  # re-raise the original-style JSONDecodeError
+    return json.loads(cleaned[start : end + 1])
 
 
 def _send_messages(
@@ -202,26 +229,51 @@ def _perception_agent(frame_paths: list[Path], original_call: str, sport: str) -
     )
 
 
-def _retrieval_agent(perception: dict, sport: str) -> str:
-    defender_status = perception.get("defender_status") or {}
-    court_geometry = perception.get("court_geometry") or {}
-    prompt = f"""
-Event type: {perception.get("event_type", "unclear")}
-Summary: {perception.get("summary", "")}
-Contact detected: {perception.get("contact_detected", False)}
-Contact location: {perception.get("contact_location", "unclear")}
-Ball state: {perception.get("ball_state", "unclear")}
-Offensive control: {perception.get("offensive_control_status", "unclear")}
-Court zone: {court_geometry.get("key_zone", "backcourt_or_unclear")}
-Restricted area defender: {defender_status.get("inside_restricted_area", "unclear")}
-Legal guarding position: {defender_status.get("legal_guarding_position", "unclear")}
-Defender movement: {defender_status.get("moving_direction", "unclear")}
+def _build_retrieval_prompt(perception: dict, sport: str) -> str:
+    """Sport-agnostic retrieval-agent user prompt (Sprint 14).
 
-Write the rulebook search query.
-""".strip()
+    Previously hardcoded basketball perception fields (court zone, restricted area,
+    legal guarding position, …), which read as blanks for every other sport. It now
+    surfaces the sport-neutral core (event type, summary, contact, object state)
+    plus every signal the sport's ``sport_details`` block exposes, so retrieval
+    queries are as informed for soccer/hockey/lacrosse as for basketball.
+    """
+    lines = [
+        f"Sport: {sport}",
+        f"Event type: {perception.get('event_type', 'unclear')}",
+        f"Summary: {perception.get('summary', '')}",
+        f"Contact detected: {perception.get('contact_detected', False)}",
+        f"Contact location: {perception.get('contact_location', 'unclear')}",
+        f"Object/ball state: {perception.get('ball_state', 'unclear')}",
+    ]
+    # Flatten the sport's structured signals into "key: value" lines so any sport's
+    # detail block informs the query without a per-sport template.
+    sport_details = perception.get("sport_details") or {}
+    block = sport_details.get(sport) if isinstance(sport_details, dict) else None
+    for key, value in _flatten_detail_items(block):
+        lines.append(f"{key.replace('_', ' ').capitalize()}: {value}")
+
+    lines.append("\nWrite the rulebook search query.")
+    return "\n".join(lines).strip()
+
+
+def _flatten_detail_items(block: object, prefix: str = "") -> list[tuple[str, object]]:
+    """Flatten a (possibly nested) sport_details block to (key, scalar) pairs,
+    skipping empty/unclear values so they do not clutter the query prompt."""
+    items: list[tuple[str, object]] = []
+    if isinstance(block, dict):
+        for key, value in block.items():
+            if isinstance(value, dict):
+                items.extend(_flatten_detail_items(value, prefix))
+            elif value not in (None, "", "unclear", False):
+                items.append((key, value))
+    return items
+
+
+def _retrieval_agent(perception: dict, sport: str) -> str:
     return _send_messages(
         system_prompt=_get_retrieval_prompt(sport),
-        user_content=prompt,
+        user_content=_build_retrieval_prompt(perception, sport),
         temperature=0,
         max_tokens=80,
     ).strip().strip('"')
@@ -277,8 +329,22 @@ PERCEPTION OUTPUT:
 RETRIEVED RULES:
 {_rules_text(rules)}
 
-Issue your verdict as JSON.
+{_COT_ISOLATION_INSTRUCTION}
 """.strip()
+
+
+# Chain-of-thought isolation (Sprint 14): let the model reason step-by-step in a
+# private scratchpad, then commit only the final JSON. The scratchpad keeps the
+# reasoning from being cut short by the token budget or leaking into the parsed
+# verdict; `_extract_json` strips the <thinking> block before parsing. Shared by
+# both adjudicators (the user prompt is built once), so it is sport-agnostic.
+_COT_ISOLATION_INSTRUCTION = (
+    "First, think through the decision privately inside a single <thinking>...</thinking> "
+    "block: restate the decisive facts from the perception, map them to the retrieved "
+    "rule text, and weigh the uncertainty. Then, OUTSIDE the thinking block, output ONLY "
+    "the final verdict as a single JSON object. Do not repeat the reasoning outside the "
+    "JSON; the `reasoning` field should be a concise 2-4 sentence justification."
+)
 
 
 def _adjudicator_agent(
@@ -458,6 +524,11 @@ def _reconcile(
         # calibrate but never override the adjudicators. None => unchanged.
         if detection_confidence is not None:
             agreed += 0.1 * (_safe_float(detection_confidence, 0.5) - 0.5)
+        # Visual-quality calibration (Sprint 14): shrink toward the 0.5 prior as
+        # footage degrades. `clear` is identity, so well-conditioned clips (and the
+        # existing reconciliation tests) are unchanged; `partial` footage yields a
+        # better-calibrated, less over-confident number.
+        agreed = calibrate_confidence(agreed, visual_quality)
         return (
             verdict_a,
             round(max(0.0, min(1.0, agreed)), 2),
