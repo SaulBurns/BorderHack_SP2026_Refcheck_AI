@@ -144,12 +144,26 @@ The response is assembled as plain dicts in `_build_response` / `_frontend_perce
 
 ### FastAPI entrypoint (`backend/main.py`)
 
-- `GET /api/health` — Render healthcheck; `GET /` — liveness.
-- `POST /api/analyze` — multipart (`file`, `sport`, `level`, `league`, `original_call`, `ref_name`); saves the clip, runs `analyze_clip` off the event loop, persists via `services/supabase_store.py`. `POST /analyze` is the same with legacy field names.
+- `GET /api/health` — liveness (Render healthcheck; backward-compatible `status:"ok"` superset via `services/health.liveness()`); `GET /` — liveness message.
+- `GET /api/health/ready` — readiness (`200`/`503`) with provider/ffmpeg/upload-dir checks; `GET /api/version`; `GET /api/metrics` — Prometheus text (Sprint 15).
+- `POST /api/analyze` — multipart (`file`, `sport`, `level`, `league`, `original_call`, `ref_name`); saves the clip, runs `analyze_clip` off the event loop, persists via `services/supabase_store.py`. `POST /analyze` is the same with legacy field names. Both carry an optional `Depends(api_key_auth)` (no-op unless `API_KEYS` set).
 - `GET /api/clips/{name}`, `GET /api/frames/{clip_id}/{name}`, `GET /api/feed` — media + feed.
+- **Observability middleware** wraps every request: assigns/echoes `X-Request-ID`, emits a structured log line, records metrics, and enforces the optional rate limit on the analyze paths. All additive — response bodies are unchanged.
 - CORS origins come from `FRONTEND_ORIGIN` / `CORS_ORIGINS` (comma-separated) plus a `*.vercel.app` regex.
 
-Deploy: Docker (`backend/Dockerfile`) → `uvicorn main:app`. There is no `build.sh`.
+Deploy: Docker (`backend/Dockerfile`, multi-stage + non-root + `HEALTHCHECK`) → `uvicorn main:app`. There is no `build.sh`.
+
+### Production readiness (Sprint 15)
+
+Production hardening — **all additive, off/backward-compatible by default, no `/api/analyze` contract change**. Full guide: `docs/PRODUCTION_DEPLOYMENT.md`.
+
+- **Auth** (`services/security/auth.py`): optional API-key auth on the write endpoints. `api_key_auth` is a FastAPI dependency that is a **no-op until `API_KEYS`/`REFCHECK_API_KEY` is set**; then it requires `X-API-Key` or `Authorization: Bearer` (constant-time compare, 401 on failure).
+- **Rate limiting** (`services/security/rate_limit.py`): a pure, clock-injectable fixed-window `RateLimiter`, keyed per client (API key else IP), enabled by `RATE_LIMIT_PER_MINUTE` (>0). Applied in the middleware to `/analyze` + `/api/analyze`; 429 + `Retry-After` on reject. In-process (single-instance); swap for Redis behind `allow()` for multi-replica.
+- **Logging** (`services/observability/logging_config.py`): `configure_logging()` sets JSON (`LOG_FORMAT=json`, default) or plain logs at `LOG_LEVEL`. NB: never pass reserved `LogRecord` names (e.g. `filename`) in `extra=`.
+- **Metrics** (`services/observability/metrics.py`): a thread-safe, dependency-free registry rendering Prometheus text at `/api/metrics` — `refcheck_http_requests_total{method,path,status}` (path = **route template**, bounded cardinality), `refcheck_http_request_duration_seconds`, `refcheck_analyses_total{sport,verdict}`, `refcheck_rate_limited_total`, `refcheck_auth_failures_total`.
+- **Health** (`services/health.py`): `liveness()` / `readiness()` pure functions; readiness degrades (`503`) rather than raising when a dependency (provider key, ffmpeg, upload dir) is missing.
+- **Docker**: multi-stage build (builder installs wheels → slim runtime copies site-packages), non-root `appuser`, container `HEALTHCHECK`, tightened `.dockerignore`. Test deps (`pytest`, `httpx`) live in `requirements-dev.txt`, kept out of the image.
+- **Performance**: the middleware adds **~0.3 ms/request** and the analysis pipeline is unchanged — measured by `scripts/prod_overhead_benchmark.py` (HTTP before/after) and `scripts/perf_benchmark.py` (pipeline). Tested in `tests/test_production.py` (23 tests).
 
 ### AI provider abstraction
 

@@ -1,5 +1,23 @@
+# Keep the build context small (faster builds, smaller image, no secrets baked in).
 __pycache__/
 *.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local env & secrets — never copy into the image.
 .env
+*.env
+
+# Virtualenv & generated/local-only artifacts.
 venv/
 uploads/
+frames/
+demo_reports/
+*.log
+
+# Dev-only files not needed at runtime.
+tests/
+requirements-dev.txt
+.git/
+.gitignore

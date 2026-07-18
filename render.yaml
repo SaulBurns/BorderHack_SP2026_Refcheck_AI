@@ -8,10 +8,27 @@ services:
     envVars:
       - key: APP_ENV
         value: production
+      # Version stamp surfaced by /api/version and /api/health (set to the git SHA
+      # in CI, or leave for Render to fill from the commit).
+      - key: APP_VERSION
+        sync: false
       - key: AI_PROVIDER
         value: anthropic
       - key: AI_MODEL
         value: claude-sonnet-4-5
+      # Observability (Sprint 15).
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LOG_FORMAT
+        value: json
+      # Abuse protection: requests/minute per client on the analyze endpoints
+      # (0 or unset = disabled). Tune for the plan's capacity.
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "30"
+      # Optional API-key auth on the write endpoints. Set to enable; unset = open
+      # (comma-separated list of accepted keys). Kept as a secret.
+      - key: API_KEYS
+        sync: false
       - key: FRONTEND_ORIGIN
         sync: false
       - key: ANTHROPIC_API_KEY

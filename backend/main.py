@@ -2,19 +2,22 @@ import asyncio
 import logging
 import os
 from pathlib import Path
+from time import perf_counter
+from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-
-logger = logging.getLogger(__name__)
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 try:
     from dotenv import load_dotenv
 except ImportError:
     load_dotenv = None
 
+from services import health
 from services.ai_analyzer import FRAME_DIR, analyze_clip
+from services.observability import configure_logging, metrics
+from services.security import RateLimiter, api_key_auth, rate_limit_per_minute
 from services.supabase_store import list_feed, persist_analysis
 from services.video_processor import UPLOAD_DIR, save_uploaded_clip
 
@@ -38,7 +41,18 @@ if load_dotenv:
 else:
     _load_local_env()
 
-app = FastAPI()
+# Structured logging must be configured before the first log line (Sprint 15).
+configure_logging()
+logger = logging.getLogger("refcheck")
+
+app = FastAPI(title="RefCheck AI", version=health.app_version())
+
+# Endpoints protected by rate limiting (the expensive write paths). Reads the raw
+# request path, so both `/analyze` and `/api/analyze` are covered.
+_RATE_LIMITED_PATHS = frozenset({"/analyze", "/api/analyze"})
+# Shared limiter; its limit is refreshed per-request from the env so operators can
+# tune it without a redeploy and tests can exercise it deterministically.
+_rate_limiter = RateLimiter(limit=0)
 
 allowed_origins = [
     "http://localhost:3000",
@@ -73,13 +87,128 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def _client_key(request: Request) -> str:
+    """Rate-limit bucket: the API key when present, else the client IP."""
+    api_key = request.headers.get("x-api-key")
+    if api_key:
+        return f"key:{api_key}"
+    client = request.client.host if request.client else "unknown"
+    return f"ip:{client}"
+
+
+def _route_label(request: Request) -> str:
+    """Route template (bounded cardinality) for metrics, e.g. /api/clips/{name}."""
+    route = request.scope.get("route")
+    return getattr(route, "path", request.url.path)
+
+
+@app.middleware("http")
+async def observability_middleware(request: Request, call_next):
+    """Request-id propagation + structured request log + metrics + rate limiting.
+
+    All additive: it never alters a response body, only adds an `X-Request-ID`
+    header and records telemetry. Rate limiting engages only when
+    `RATE_LIMIT_PER_MINUTE` is set (>0).
+    """
+    request_id = request.headers.get("x-request-id") or uuid4().hex[:16]
+    start = perf_counter()
+
+    limit = rate_limit_per_minute()
+    if limit > 0 and request.method == "POST" and request.url.path in _RATE_LIMITED_PATHS:
+        _rate_limiter.limit = limit
+        allowed, retry_after = _rate_limiter.allow(_client_key(request))
+        if not allowed:
+            metrics.inc("refcheck_rate_limited_total", {"path": request.url.path})
+            logger.warning(
+                "rate limited",
+                extra={"request_id": request_id, "path": request.url.path},
+            )
+            return JSONResponse(
+                {"detail": "Rate limit exceeded. Please retry later."},
+                status_code=429,
+                headers={"Retry-After": str(int(retry_after) + 1), "X-Request-ID": request_id},
+            )
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration = perf_counter() - start
+        label = _route_label(request)
+        metrics.inc(
+            "refcheck_http_requests_total",
+            {"method": request.method, "path": label, "status": "500"},
+        )
+        metrics.observe("refcheck_http_request_duration_seconds", duration, {"path": label})
+        logger.exception(
+            "request failed",
+            extra={"request_id": request_id, "method": request.method, "path": label},
+        )
+        raise
+
+    duration = perf_counter() - start
+    label = _route_label(request)
+    response.headers["X-Request-ID"] = request_id
+    metrics.inc(
+        "refcheck_http_requests_total",
+        {"method": request.method, "path": label, "status": str(response.status_code)},
+    )
+    metrics.observe("refcheck_http_request_duration_seconds", duration, {"path": label})
+    logger.info(
+        "request",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": label,
+            "status": response.status_code,
+            "duration_ms": round(duration * 1000, 2),
+        },
+    )
+    return response
+
+
+def _record_analysis(result: dict, sport: str) -> None:
+    """Count a completed analysis by sport + final verdict (best-effort)."""
+    try:
+        verdict = (result or {}).get("verdict", {}).get("verdict", "unknown")
+    except AttributeError:
+        verdict = "unknown"
+    metrics.inc("refcheck_analyses_total", {"sport": sport, "verdict": str(verdict)})
+
+
+# --- Liveness / readiness / observability -----------------------------------
+
 @app.get("/")
 def home():
     return {"message": "RefCheck AI backend is running"}
 
+
 @app.get("/api/health")
 def api_health():
-    return {"status": "ok", "message": "RefCheck AI backend is running"}
+    """Liveness — backward-compatible superset (still returns status/message)."""
+    return health.liveness()
+
+
+@app.get("/api/health/ready")
+def api_ready():
+    """Readiness — provider/ffmpeg/upload-dir checks. 503 when degraded."""
+    report = health.readiness()
+    status_code = 200 if report["status"] == "ready" else 503
+    return JSONResponse(report, status_code=status_code)
+
+
+@app.get("/api/version")
+def api_version():
+    return {"version": health.app_version(), "environment": health.app_environment()}
+
+
+@app.get("/api/metrics")
+def api_metrics():
+    """Prometheus text-exposition metrics for scraping."""
+    return PlainTextResponse(metrics.render(), media_type="text/plain; version=0.0.4")
+
+
+# --- Media -------------------------------------------------------------------
 
 @app.get("/api/clips/{stored_name}")
 def get_uploaded_clip(stored_name: str):
@@ -90,6 +219,7 @@ def get_uploaded_clip(stored_name: str):
         raise HTTPException(status_code=404, detail="Clip not found")
 
     return FileResponse(clip_path)
+
 
 @app.get("/api/frames/{clip_id}/{frame_name}")
 def get_analysis_frame(clip_id: str, frame_name: str):
@@ -102,11 +232,15 @@ def get_analysis_frame(clip_id: str, frame_name: str):
 
     return FileResponse(frame_path, media_type="image/jpeg")
 
+
 @app.get("/api/feed")
 def api_feed(limit: int = 20):
     return {"items": list_feed(limit=limit)}
 
-@app.post("/analyze")
+
+# --- Analysis (write endpoints — optional auth) ------------------------------
+
+@app.post("/analyze", dependencies=[Depends(api_key_auth)])
 async def analyze_video(
     file: UploadFile = File(...),
     sport: str = Form("Basketball"),
@@ -129,7 +263,7 @@ async def analyze_video(
         referee_name=referee_name,
         video_metadata=video_metadata,
     )
-    return persist_analysis(
+    response = persist_analysis(
         result=result,
         video_metadata=video_metadata,
         sport=sport,
@@ -138,8 +272,11 @@ async def analyze_video(
         original_call=original_call or "",
         referee_name=referee_name or "",
     )
+    _record_analysis(response, sport)
+    return response
 
-@app.post("/api/analyze")
+
+@app.post("/api/analyze", dependencies=[Depends(api_key_auth)])
 async def analyze_video_for_frontend(
     file: UploadFile = File(...),
     sport: str = Form("basketball"),
@@ -148,7 +285,11 @@ async def analyze_video_for_frontend(
     original_call: str | None = Form(None),
     ref_name: str | None = Form(None),
 ):
-    logger.info("[RefCheck] /api/analyze received sport=%r file=%r", sport, file.filename)
+    # NB: avoid reserved LogRecord attribute names (e.g. `filename`) in `extra`.
+    logger.info(
+        "analyze received",
+        extra={"sport": sport, "clip_filename": file.filename},
+    )
     video_metadata = await save_uploaded_clip(file)
     # Offload the blocking pipeline to a worker thread (Sprint 6 perf); identical
     # response, but the event loop stays free to serve concurrent requests.
@@ -162,7 +303,7 @@ async def analyze_video_for_frontend(
         referee_name=ref_name,
         video_metadata=video_metadata,
     )
-    return persist_analysis(
+    response = persist_analysis(
         result=result,
         video_metadata=video_metadata,
         sport=sport,
@@ -171,3 +312,5 @@ async def analyze_video_for_frontend(
         original_call=original_call or "",
         referee_name=ref_name or "",
     )
+    _record_analysis(response, sport)
+    return response
