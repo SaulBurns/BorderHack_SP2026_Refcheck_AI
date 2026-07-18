@@ -17,7 +17,7 @@ import { getCachedVerdict, getCachedLocalVideoUrl, resolveApiUrl } from "../../l
 import type { AnalyzeResponse, Verdict as VerdictType } from "../../lib/types";
 import { VERDICT_COLOR, VERDICT_LABEL } from "../../lib/types";
 import { sportEvidenceRows, sportLabel } from "../../lib/sportEvidence";
-import { isPreviewSport } from "../../lib/sports";
+import { diagnosticRows, dynamicSportDetailRows } from "../../lib/sportDetails";
 import AiReasoningPanel from "../components/AiReasoningPanel";
 
 const clampPercent = (value: unknown, fallback: number) => {
@@ -128,6 +128,11 @@ export default function Verdict() {
     },
   ];
 
+  // Dynamic, sport-agnostic panels — render whatever the backend sends for this
+  // sport (works for any current or future sport plugin).
+  const sportSignalRows = dynamicSportDetailRows(v.perception.sport, v.perception);
+  const diagRows = diagnosticRows(data.diagnostics);
+
   const handleHelpfulVote = (vote: "yes" | "no") => {
     setHelpfulVote(vote);
     localStorage.setItem(`refcheck:helpful:${id}`, vote);
@@ -176,19 +181,8 @@ export default function Verdict() {
           <div className="flex-1">
             <div className="font-marker text-6xl mb-2">{banner.label}</div>
             <div className="font-mono text-sm opacity-90">
-              {sportLabel(v.perception.sport)}
-              {isPreviewSport(v.perception.sport) && (
-                <span className="ml-2 bg-white/25 px-2 py-0.5 rounded text-[10px] uppercase tracking-wide">
-                  Preview
-                </span>
-              )}{" "}
-              · processed in {v.processing_time_seconds.toFixed(1)}s
+              {sportLabel(v.perception.sport)} · processed in {v.processing_time_seconds.toFixed(1)}s
             </div>
-            {isPreviewSport(v.perception.sport) && (
-              <div className="font-mono text-xs opacity-80 mt-1">
-                {sportLabel(v.perception.sport)} is experimental — full AI rules are only configured for basketball today.
-              </div>
-            )}
           </div>
           <div className="text-right">
             <div className="font-mono text-5xl">{confidencePct}%</div>
@@ -330,11 +324,62 @@ export default function Verdict() {
         </div>
       </div>
 
-      {/* NBA Game Context (basketball only, additive) */}
+      {/* Sport Signals — the sport's structured perception detail, rendered
+          dynamically field-by-field so every sport (and any future one) shows. */}
+      {sportSignalRows.length > 0 && (
+        <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-6 border-2 border-black/5 transform -rotate-1">
+          <div className="flex items-center justify-between gap-4 mb-5">
+            <h2 className="font-marker text-3xl">{sportLabel(v.perception.sport)} Signals</h2>
+            <div className="font-mono text-xs opacity-50">AI perception detail</div>
+          </div>
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {sportSignalRows.map((row) => (
+              <div
+                key={row.label}
+                className={`rounded-lg border-2 p-3 ${
+                  row.value
+                    ? "border-[#2DBF4F]/30 bg-[#E5FFE5]"
+                    : "border-black/10 bg-gray-50"
+                }`}
+              >
+                <div className="font-mono text-[11px] opacity-50 mb-1">{row.label}</div>
+                <div className="text-sm capitalize">{row.detail}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Analysis Diagnostics — provider/detector, tracked evidence, tracking
+          confidence, and how tracking influenced the verdict. Sport-agnostic. */}
+      {diagRows.length > 0 && (
+        <div className="bg-white rounded-xl shadow-[6px_6px_0_0_rgba(0,0,0,0.1)] p-6 mb-6 border-2 border-black/5">
+          <div className="flex items-center justify-between gap-4 mb-5">
+            <h2 className="font-marker text-3xl">Analysis Diagnostics</h2>
+            <div className="font-mono text-xs opacity-50">Tracked evidence &amp; pipeline</div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {diagRows.map((row) => (
+              <div key={row.label} className="rounded-lg bg-gray-50 p-3">
+                <div className="font-mono text-[10px] uppercase tracking-wide opacity-50">
+                  {row.label}
+                </div>
+                <div className="text-sm capitalize">{row.detail}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Game context — additive, only present when a sport's metadata provider
+          resolves a game (currently NBA for basketball). Label derives from the
+          provider so it never hardcodes a sport. */}
       {gameContext && gameContext.resolution_status !== "skipped" && (
         <div className="bg-white rounded-xl shadow-[4px_4px_0_0_rgba(0,0,0,0.08)] p-5 mb-6 border-2 border-black/5">
           <div className="flex items-center justify-between mb-3">
-            <div className="font-mono text-xs opacity-60 tracking-wider">NBA GAME CONTEXT</div>
+            <div className="font-mono text-xs opacity-60 tracking-wider">
+              {(gameContext.provider || "game").toUpperCase()} GAME CONTEXT
+            </div>
             <span className="font-mono text-[10px] uppercase tracking-wide px-2 py-0.5 rounded bg-black/5">
               {gameContext.resolution_status.replace(/_/g, " ")}
             </span>
