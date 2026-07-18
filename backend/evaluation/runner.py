@@ -8,11 +8,13 @@ from pathlib import Path
 
 from evaluation.metrics import (
     accuracy,
+    brier_score,
     cohens_kappa,
     confidence_by_correctness,
     confusion_matrix,
     expected_calibration_error,
     macro_averages,
+    matthews_corrcoef,
     mean_confidence,
     micro_averages,
     per_class_metrics,
@@ -42,6 +44,9 @@ class EvaluationReport:
     micro: dict = field(default_factory=dict)
     ece: float = 0.0
     reliability: list = field(default_factory=list)
+    # Sprint 14 additions (proper scoring rule + robust agreement).
+    brier: float = 0.0
+    mcc: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -62,6 +67,8 @@ def evaluate(records: list[EvaluationRecord]) -> EvaluationReport:
         micro=micro_averages(records),
         ece=expected_calibration_error(records),
         reliability=reliability_bins(records),
+        brier=brier_score(records),
+        mcc=matthews_corrcoef(records),
     )
 
 

@@ -50,13 +50,14 @@ class AnthropicProvider(AIProvider):
             raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
         model = os.getenv(config.AI_MODEL_ENV) or DEFAULT_MODEL
-        payload = {
-            "model": model,
-            "system": system_prompt,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "messages": [{"role": "user", "content": self._blocks(user_content)}],
-        }
+        payload = self.build_payload(
+            model=model,
+            system_prompt=system_prompt,
+            blocks=self._blocks(user_content),
+            temperature=temperature,
+            max_tokens=max_tokens,
+            prompt_cache=config.env_flag(config.ANTHROPIC_PROMPT_CACHE_ENV),
+        )
         response = self._post_json(
             API_URL,
             {
@@ -67,6 +68,43 @@ class AnthropicProvider(AIProvider):
             payload,
         )
         return self._text_from_response(response)
+
+    # -- request building ---------------------------------------------------
+
+    @staticmethod
+    def build_payload(
+        *,
+        model: str,
+        system_prompt: str,
+        blocks: list[dict],
+        temperature: float,
+        max_tokens: int,
+        prompt_cache: bool = False,
+    ) -> dict:
+        """Build the Anthropic Messages request body (pure — unit-testable).
+
+        Sprint 14 — Claude optimization: when `prompt_cache` is on, the large,
+        reused system prompt (identical across both adjudicators and repeat
+        analyses) is sent as a cache-controlled block so Anthropic serves it from
+        cache, cutting input cost and latency. Default off, so the request is
+        byte-for-byte the legacy payload unless explicitly enabled.
+        """
+        system: object = system_prompt
+        if prompt_cache:
+            system = [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        return {
+            "model": model,
+            "system": system,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": blocks}],
+        }
 
     # -- content translation ------------------------------------------------
 

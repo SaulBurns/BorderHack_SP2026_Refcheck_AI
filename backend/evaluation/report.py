@@ -26,16 +26,20 @@ def _pct(value: float | int | None) -> str:
 # ---------------------------------------------------------------------------
 
 def _comparison_rows(report: BenchmarkReport) -> list[tuple[str, ...]]:
+    recommended = report.recommended_provider()
     rows: list[tuple[str, ...]] = []
     for result in report.results:
         ev = result.evaluation
+        provider = f"{result.provider} ★" if result.provider == recommended else result.provider
         rows.append(
             (
-                result.provider,
+                provider,
                 _pct(ev.accuracy),
                 _f3(ev.macro.get("f1")),
                 _f3(ev.cohens_kappa),
                 _f3(ev.ece),
+                _f3(ev.mcc),
+                _f3(ev.brier),
                 _f3(result.latency.mean_ms),
                 _f3(result.latency.p95_ms),
             )
@@ -52,12 +56,19 @@ def render_markdown(report: BenchmarkReport) -> str:
         "",
         "## Provider comparison",
         "",
-        "| Provider | Accuracy | Macro F1 | Kappa | ECE | Mean latency (ms) | p95 (ms) |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| Provider | Accuracy | Macro F1 | Kappa | ECE | MCC | Brier | Mean latency (ms) | p95 (ms) |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in _comparison_rows(report):
         lines.append("| " + " | ".join(row) + " |")
     lines.append("")
+    recommended = report.recommended_provider()
+    if recommended:
+        lines += [
+            f"**Recommended provider: `{recommended}`** ★ — highest accuracy, then "
+            "Matthews correlation, then best-calibrated (lowest Brier), then fastest.",
+            "",
+        ]
 
     for result in report.results:
         lines += _provider_section_md(result)
@@ -71,7 +82,8 @@ def _provider_section_md(result: BenchmarkResult) -> list[str]:
         "",
         f"- Clips: {ev.count}  ·  Accuracy: {_pct(ev.accuracy)}  ·  "
         f"Macro P/R/F1: {_f3(ev.macro.get('precision'))} / {_f3(ev.macro.get('recall'))} / {_f3(ev.macro.get('f1'))}",
-        f"- Cohen's kappa: {_f3(ev.cohens_kappa)}  ·  ECE: {_f3(ev.ece)}  ·  "
+        f"- Cohen's kappa: {_f3(ev.cohens_kappa)}  ·  MCC: {_f3(ev.mcc)}  ·  "
+        f"ECE: {_f3(ev.ece)}  ·  Brier: {_f3(ev.brier)}  ·  "
         f"Mean confidence: {_f3(ev.mean_confidence)}",
         f"- Latency ms — mean {_f3(result.latency.mean_ms)} · p50 {_f3(result.latency.p50_ms)} · "
         f"p95 {_f3(result.latency.p95_ms)} · max {_f3(result.latency.max_ms)}",
@@ -163,9 +175,17 @@ def _confusion_html(result: BenchmarkResult) -> str:
 
 def render_html(report: BenchmarkReport) -> str:
     comparison = _table(
-        ["Provider", "Accuracy", "Macro F1", "Kappa", "ECE", "Mean latency (ms)", "p95 (ms)"],
+        ["Provider", "Accuracy", "Macro F1", "Kappa", "ECE", "MCC", "Brier",
+         "Mean latency (ms)", "p95 (ms)"],
         [list(row) for row in _comparison_rows(report)],
         first_col_label=True,
+    )
+    recommended = report.recommended_provider()
+    recommended_html = (
+        f"<p class='meta'><strong>Recommended provider: <code>{escape(recommended)}</code></strong> ★ "
+        "— highest accuracy, then Matthews correlation, then best-calibrated (lowest Brier), then fastest.</p>"
+        if recommended
+        else ""
     )
 
     sections: list[str] = []
@@ -214,6 +234,7 @@ def render_html(report: BenchmarkReport) -> str:
         f"Generated {escape(report.generated_at)}</p>"
         "<h2>Provider comparison</h2>"
         f"{comparison}"
+        f"{recommended_html}"
         f"{''.join(sections)}"
         "</body></html>"
     )

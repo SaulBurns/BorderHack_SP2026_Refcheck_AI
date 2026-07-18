@@ -28,6 +28,15 @@ ANTHROPIC_API_KEY_ENV = "ANTHROPIC_API_KEY"
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 GEMINI_MODEL_ENV = "GEMINI_MODEL"
 
+# Sprint 14 — opt-in provider optimizations (default OFF; behavior unchanged unless
+# explicitly enabled, so demos and tests are safe by default).
+#   ANTHROPIC_PROMPT_CACHE: cache the large, reused adjudicator/perception system
+#     prompt with Anthropic prompt caching (cheaper + lower latency on repeats).
+#   GEMINI_JSON_MODE: ask Gemini for `application/json` output (more reliable JSON
+#     parsing). Trades off the private <thinking> scratchpad, so it is opt-in.
+ANTHROPIC_PROMPT_CACHE_ENV = "ANTHROPIC_PROMPT_CACHE"
+GEMINI_JSON_MODE_ENV = "GEMINI_JSON_MODE"
+
 SUPABASE_URL_ENV = "SUPABASE_URL"
 SUPABASE_SERVICE_ROLE_KEY_ENV = "SUPABASE_SERVICE_ROLE_KEY"
 SUPABASE_CLIPS_BUCKET_ENV = "SUPABASE_CLIPS_BUCKET"

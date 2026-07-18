@@ -71,13 +71,16 @@ analyze_clip(file, sport, ..., video_metadata)      services/ai_analyzer.py
        │    Claude vision over the frames → perception dict (no verdict)
        ├─ _retrieval_agent()    Claude turns perception into a rulebook query
        ├─ _retrieve_rules()     services/analysis/retrieval.py
-       │    keyword scoring over rules.sport_config (NO embeddings/FAISS) → top 5
+       │    field-weighted, stopword-filtered keyword scoring over a sport-agnostic
+       │    haystack (NO embeddings/FAISS) → top 5 (Sprint 14)
        ├─ adjudicators A ∥ B    conservative (temp 0.2) ∥ skeptical (temp 0.7),
-       │    run concurrently on a ThreadPoolExecutor; identical prompt built once
+       │    run concurrently on a ThreadPoolExecutor; identical prompt built once;
+       │    reason in a private <thinking> scratchpad, then emit only JSON (Sprint 14)
        └─ (mock/degraded runs return services/analysis/mock_result.py)
   │
   └─ _build_response() → _reconcile()                 services/ai_analyzer.py
-       agree → that verdict, averaged confidence (± tracking nudge)
+       agree → that verdict, averaged confidence (± tracking nudge),
+               then visual-quality calibration (Sprint 14: shrink toward 0.5 prior)
        disagree / weak perception → inconclusive, damped confidence
 ```
 
@@ -170,7 +173,7 @@ backend/services/ai/
 
 **Why provider-specific logic must never leak into `ai_analyzer.py`:** the analyzer owns the *pipeline* (agents, reconciliation, diagnostics), not vendor plumbing. Keeping HTTP/SDK/auth/model-name/image-encoding details inside the provider classes is what makes providers swappable by env var alone and keeps the pipeline untouched when a backend changes.
 
-**Environment configuration:** `AI_PROVIDER` selects the provider (`mock` | `anthropic` | `gemini`; default `mock`; invalid values raise a clear error). `anthropic` needs `ANTHROPIC_API_KEY` (model override: `AI_MODEL`, default `claude-sonnet-4-5`). `gemini` needs `GEMINI_API_KEY` and the `google-genai` package (model override: `GEMINI_MODEL`, default `gemini-2.5-flash`). Missing keys degrade to the mock fallback with the reason surfaced in diagnostics; an unsupported `AI_PROVIDER` value fails loudly.
+**Environment configuration:** `AI_PROVIDER` selects the provider (`mock` | `anthropic` | `gemini`; default `mock`; invalid values raise a clear error). `anthropic` needs `ANTHROPIC_API_KEY` (model override: `AI_MODEL`, default `claude-sonnet-4-5`). `gemini` needs `GEMINI_API_KEY` and the `google-genai` package (model override: `GEMINI_MODEL`, default `gemini-2.5-flash`). Missing keys degrade to the mock fallback with the reason surfaced in diagnostics; an unsupported `AI_PROVIDER` value fails loudly. **Opt-in provider optimizations (Sprint 14, default OFF):** `ANTHROPIC_PROMPT_CACHE=1` enables Anthropic prompt caching of the system prompt; `GEMINI_JSON_MODE=1` requests JSON-typed Gemini output. Both are pure request-builder changes (`build_payload` / `generation_kwargs`) that leave default behavior identical.
 
 **Adding a future provider** (OpenAI, Azure, Grok, Ollama, …): (1) create one class implementing `AIProvider` under `providers/`, (2) add one `_registry.register(...)` line in `factory.py` (the shared `services/registry.Registry`). The four-agent pipeline requires zero changes. Design principle for contributors: a provider only knows how to turn a system prompt + neutral content + temperature/max_tokens into a text reply — it must not import `ai_analyzer`, know about agents, or reshape JSON.
 
@@ -183,7 +186,7 @@ backend/services/ai/
 **How detections influence the verdict** (all in `_run_four_agent_pipeline` / `_build_response`, basketball-scoped):
 - `services/extractors/basketball_vision.py:summarize_tracked_evidence()` turns `RawDetections` into a compact evidence dict: offensive/defender `track_id`s, per-frame `possession_timeline`, `possession_changes`, ball-handler + defender movement, **ball's own `ball_movement`** (from `track_ball`, independent of any player), and a `tracking_confidence ∈ [0,1]`.
 - This evidence is attached to **both** adjudicator prompts (`_adjudicator_agent`, `TRACKED DETECTION EVIDENCE` section) alongside `sport_details` — computed once, passed to both.
-- `_reconcile` takes the evidence's `tracking_confidence` and applies a bounded ±0.05 nudge to the final confidence **only when the adjudicators agree** (calibrate, never decide).
+- `_reconcile` takes the evidence's `tracking_confidence` and applies a bounded ±0.05 nudge to the final confidence **only when the adjudicators agree** (calibrate, never decide); the Sprint 14 visual-quality calibration (`calibrate_confidence`) is then applied on top of the nudged value.
 - `_frontend_perception` maps detection-derived signals into `sport_details` (the frontend block) — enrichment only; every legacy field is preserved.
 
 **Single-scan dedup:** the controlling player per frame is computed exactly once via `_scan_controllers`; `possession_status`, `identify_primary_defender`, `analyze_basketball`, and `summarize_tracked_evidence` all derive from that shared scan instead of re-scanning the frames.
@@ -223,7 +226,7 @@ backend/evaluation/
 
 **Datasets**: a JSON array of rows with `clip_id`, `sport`, `ground_truth_verdict` (required) and optional `video_path` / `original_call` (used to drive the pipeline). `data/eval/labeled_clips.example.json` is a 3-clip smoke set; `data/eval/benchmark_basketball.json` is the 10-scenario basketball benchmark, `data/eval/benchmark_soccer.json` (Sprint 10) the 7-scenario soccer benchmark, `data/eval/benchmark_hockey.json` (Sprint 11) the 7-scenario hockey benchmark, and `data/eval/benchmark_lacrosse.json` (Sprint 12) the 6-scenario lacrosse benchmark, all derived from the demo datasets.
 
-**Metrics**: overall accuracy, per-class + macro + micro precision/recall/F1, confusion matrix, Cohen's kappa, confidence calibration (reliability bins + ECE), and inference latency (mean/p50/p95). **Provider comparison** runs the same dataset through `mock` | `anthropic` | `gemini` and tabulates the differences.
+**Metrics**: overall accuracy, per-class + macro + micro precision/recall/F1, confusion matrix, Cohen's kappa, **Matthews correlation (MCC)** and **Brier score** (Sprint 14), confidence calibration (reliability bins + ECE), and inference latency (mean/p50/p95). **Provider comparison** runs the same dataset through `mock` | `anthropic` | `gemini`, tabulates the differences, and reports a **recommended provider** (accuracy → MCC → best calibration/Brier → fastest). Committed, reproducible report artifacts live in `backend/evaluation/reports/` (`benchmark_<sport>.md`/`.json`).
 
 **CLI** (`python -m evaluation`):
 ```bash
@@ -234,6 +237,19 @@ python -m evaluation --dataset data/eval/benchmark_basketball.json \
     --providers mock,anthropic,gemini --output bench.json --md bench.md --html bench.html
 ```
 Both modes flow through `run_benchmark`; single-provider still writes the bare `EvaluationReport` JSON. The pipeline is reached only through `cli.collect_predictions` (the same provider/env seam as everything else), and tests inject `analyze_fn` to run offline. Real providers without keys degrade to the mock fallback (surfaced in the run), so the benchmark always produces a report.
+
+### Model quality (Sprint 14)
+
+AI-quality improvements — **all internal; the `/api/analyze` response shape and the provider/env seams are unchanged**, and every optimization defaults to the prior behavior.
+
+- **Better retrieval** (`services/analysis/retrieval.py`): scoring moved from raw substring counting to tokenized, **stopword-filtered, field-weighted** whole-word overlap — a query term matched in a rule's id/section-title/call-type (`_LABEL_WEIGHT=3`) outweighs one buried in body text (`_BODY_WEIGHT=1`); the haystack is built **sport-agnostically** from the summary/event-type + a flattened `sport_details` view (`_build_haystack`), so retrieval reads the same for every sport. Sport-plugin boosts still apply on top; the corpus/ranking `@lru_cache`s and top-1 rankings are preserved (all plugin retrieval tests still pass).
+- **Improved prompts + sport-agnostic query** (`_build_retrieval_prompt`): the retrieval agent no longer hardcodes basketball perception fields (court zone, restricted area, legal guarding position); it surfaces the neutral core plus every `sport_details` signal, so soccer/hockey/lacrosse queries are as informed as basketball's.
+- **Chain-of-thought isolation** (`_extract_json` + shared `_COT_ISOLATION_INSTRUCTION`): both adjudicators reason in a private `<thinking>…</thinking>` scratchpad, then emit only the final JSON. `_extract_json` strips `<thinking>`/`<scratchpad>`/`<reasoning>`/`<analysis>` blocks first, then prefers a fenced ```json block, then falls back to the outermost braces — so private reasoning never leaks into or corrupts the parsed verdict (even if the scratchpad contains braces).
+- **Confidence calibration** (`services/analysis/calibration.py`): `calibrate_confidence(raw, visual_quality)` shrinks the agreed confidence toward the 0.5 prior as footage degrades (`clear` = identity, so well-conditioned clips and every existing reconciliation test are unchanged; `partial`/`obstructed`/`poor` pull toward the prior). Applied in `_reconcile` on the agreement path only; bounded, never flips a verdict.
+- **Provider optimization** (opt-in, default OFF — safe): `ANTHROPIC_PROMPT_CACHE=1` sends the large reused system prompt as a cache-controlled block (`AnthropicProvider.build_payload`, cutting input cost/latency across the two adjudicators + repeats); `GEMINI_JSON_MODE=1` requests `application/json` output (`GeminiProvider.generation_kwargs`, more reliable parsing — trades off the CoT scratchpad). Both request builders are pure and unit-tested without a network/SDK.
+- **Evaluation metrics**: added `brier_score` (proper scoring rule for confidence calibration) and multiclass `matthews_corrcoef` to `evaluation/metrics.py`, surfaced on `EvaluationReport` (`brier`, `mcc`) and in the comparison table + `recommended_provider()`.
+
+Unit-tested in `tests/test_model_improvements.py` (28 tests); the full backend suite stays green.
 
 ### Frontend (`frontend/`)
 
@@ -334,5 +350,5 @@ above (see `backend/PERFORMANCE.md`).
 
 - The response is built as dicts in `services/ai_analyzer.py` (`_build_response`/`_frontend_perception`); keep `frontend/src/lib/types.ts` in sync when the shape changes. There is no `schemas.py`.
 - The Anthropic model default `claude-sonnet-4-5` lives in `backend/services/ai/providers/anthropic_provider.py` (`DEFAULT_MODEL`, sourced from `config.DEFAULT_ANTHROPIC_MODEL`), overridable via `AI_MODEL`. It is intentionally not updated yet — check before changing. Provider-specific model names belong in the provider classes, never in `ai_analyzer.py`.
-- `_retrieve_rules()` scores the static corpus from `rules.sport_config` (keyword-based, no index files). The process must start from `backend/` so lazy `rules.*` imports resolve.
+- `_retrieve_rules()` scores the static corpus from `rules.sport_config` (keyword-based, field-weighted + stopword-filtered as of Sprint 14; no index files). The process must start from `backend/` so lazy `rules.*` imports resolve.
 - Render free tier sleeps after 15 min inactivity. Hit `/api/health` before a demo to warm up.

@@ -58,12 +58,33 @@ class BenchmarkReport:
     clip_count: int
     results: list[BenchmarkResult] = field(default_factory=list)
 
+    def recommended_provider(self) -> str | None:
+        """The best provider by a principled, quality-first ranking (Sprint 14).
+
+        Ordered by: highest accuracy, then highest Matthews correlation (robust to
+        class imbalance), then lowest Brier score (best-calibrated confidence), then
+        lowest p50 latency as the final tiebreaker. Returns None for an empty report.
+        """
+        if not self.results:
+            return None
+        best = max(
+            self.results,
+            key=lambda r: (
+                r.evaluation.accuracy,
+                r.evaluation.mcc,
+                -r.evaluation.brier,
+                -r.latency.p50_ms,
+            ),
+        )
+        return best.provider
+
     def to_dict(self) -> dict:
         return {
             "dataset": self.dataset,
             "detector": self.detector,
             "generated_at": self.generated_at,
             "clip_count": self.clip_count,
+            "recommended_provider": self.recommended_provider(),
             "results": [result.to_dict() for result in self.results],
         }
 

@@ -50,12 +50,43 @@ class GeminiProvider(AIProvider):
             model=model,
             contents=self._parts(types, user_content),
             config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=temperature,
-                max_output_tokens=max_tokens,
+                **self.generation_kwargs(
+                    system_prompt=system_prompt,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    json_mode=config.env_flag(config.GEMINI_JSON_MODE_ENV),
+                )
             ),
         )
         return response.text or ""
+
+    # -- request building ---------------------------------------------------
+
+    @staticmethod
+    def generation_kwargs(
+        *,
+        system_prompt: str,
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool = False,
+    ) -> dict:
+        """Build the kwargs for `types.GenerateContentConfig` (pure — unit-testable
+        without the SDK installed).
+
+        Sprint 14 — Gemini optimization: when `json_mode` is on, request
+        `application/json` responses so the reply is guaranteed parseable JSON
+        (removes prose/scratchpad parse failures). Off by default because JSON mode
+        precludes the private <thinking> scratchpad used for chain-of-thought
+        isolation, so the two are a deliberate trade-off.
+        """
+        kwargs = {
+            "system_instruction": system_prompt,
+            "temperature": temperature,
+            "max_output_tokens": max_tokens,
+        }
+        if json_mode:
+            kwargs["response_mime_type"] = "application/json"
+        return kwargs
 
     # -- content translation ------------------------------------------------
 
