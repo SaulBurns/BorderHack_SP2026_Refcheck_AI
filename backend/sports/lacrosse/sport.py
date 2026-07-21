@@ -1,7 +1,7 @@
 """Lacrosse sport plugin (Sprint 12 — fourth sport).
 
-Wires together everything lacrosse-specific the four-agent pipeline needs: the
-lacrosse prompts, the lacrosse rule-retrieval boosts, the
+Wires together everything lacrosse-specific the three-agent pipeline needs: the
+lacrosse prompts, the lacrosse rule corpus, the
 ``LacrosseDetailExtractor``, the lacrosse tracked-evidence layer, and the
 (currently absent) game-context provider. ``ai_analyzer`` reaches all of this
 through the ``Sport`` interface, never by checking ``sport == "lacrosse"``.
@@ -26,10 +26,6 @@ class LacrosseSport(Sport):
         from sports.lacrosse.prompts import perception_prompt
         return perception_prompt()
 
-    def retrieval_prompt(self) -> str:
-        from sports.lacrosse.prompts import retrieval_prompt
-        return retrieval_prompt()
-
     def adjudicator_prompt(self) -> str:
         from sports.lacrosse.prompts import adjudicator_prompt
         return adjudicator_prompt()
@@ -37,10 +33,6 @@ class LacrosseSport(Sport):
     def rule_records(self) -> dict:
         from rules.lacrosse_rules import LACROSSE_RULES
         return LACROSSE_RULES
-
-    def boost_rule_score(self, rule_id: str, haystack: str) -> int:
-        from sports.lacrosse.rules import boost_rule_score
-        return boost_rule_score(rule_id, haystack)
 
     def detail_extractor(self) -> Any:
         from sports.lacrosse.extractor import LacrosseDetailExtractor

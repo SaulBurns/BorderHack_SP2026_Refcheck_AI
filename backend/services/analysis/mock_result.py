@@ -37,8 +37,7 @@ def _mock_ai_result(
     return {
         "provider_used": "mock",
         "fallback_reason": fallback_reason,
-        "retrieval_query": "",
-        "retrieved_rules": [
+        "rules": [
             {
                 "rule_id": rule_id_from_call_type(result["call_type"]),
                 "section_title": result["rule_applied"],

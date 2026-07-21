@@ -222,8 +222,6 @@ def test_pipeline_threads_tracked_evidence(monkeypatch):
 
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setattr(ai, "get_detector", lambda name=None: _FakeDetector())
-    monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
-    monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
     monkeypatch.setattr(ai, "_build_adjudicator_prompt", fake_build)
     monkeypatch.setattr(ai, "_adjudicator_agent", lambda **k: {"verdict": "inconclusive", "confidence": 0.5})
 
@@ -264,8 +262,6 @@ def test_pipeline_no_tracked_evidence_for_generic_sport(monkeypatch):
 
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setattr(ai, "get_detector", lambda name=None: _FakeDetector())
-    monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
-    monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
     monkeypatch.setattr(ai, "_build_adjudicator_prompt",
                         lambda **k: captured.setdefault("te", k.get("tracked_evidence")) or "PROMPT")
     monkeypatch.setattr(ai, "_adjudicator_agent", lambda **k: {"verdict": "inconclusive", "confidence": 0.5})

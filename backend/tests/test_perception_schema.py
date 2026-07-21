@@ -197,11 +197,11 @@ def test_golden_frontend_perception_top_level_keys_unchanged():
     # Phase 2 is additive: every legacy key must still be present (no removals).
     # New keys (schema_version, sport_details) are allowed on top — asserted as a
     # subset rather than exact equality.
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "anthropic_four_agent", "blocking foul", "basketball")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "anthropic_four_agent", "basketball")
     assert _EXPECTED_TOP_LEVEL_KEYS <= set(out.keys())
 
 def test_golden_frontend_perception_defender_status_keys_unchanged():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "", "basketball")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "basketball")
     assert set(out["defender_status"].keys()) == {
         "primary_or_secondary",
         "legal_guarding_position",
@@ -211,7 +211,7 @@ def test_golden_frontend_perception_defender_status_keys_unchanged():
     }
 
 def test_golden_frontend_perception_court_geometry_keys_unchanged():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "", "basketball")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "basketball")
     assert set(out["court_geometry"].keys()) == {
         "key_zone",
         "restricted_area_arc_visible",
@@ -220,7 +220,7 @@ def test_golden_frontend_perception_court_geometry_keys_unchanged():
     }
 
 def test_golden_frontend_perception_passes_values_through():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "anthropic_four_agent", "q", "basketball")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "anthropic_four_agent", "basketball")
     assert out["sport"] == "basketball"
     assert out["event_type"] == "possible_blocking_foul"
     assert out["court_geometry"]["key_zone"] == "restricted_area"
@@ -228,7 +228,7 @@ def test_golden_frontend_perception_passes_values_through():
     assert out["perception_confidence"] == 0.82
 
 def test_golden_frontend_perception_sport_field_follows_argument():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "", "hockey")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "hockey")
     assert out["sport"] == "hockey"
 
 
@@ -240,22 +240,22 @@ def test_golden_frontend_perception_sport_field_follows_argument():
 # ---------------------------------------------------------------------------
 
 def test_phase2_schema_version_emitted():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "anthropic_four_agent", "q", "basketball")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "anthropic_four_agent", "basketball")
     assert out["schema_version"] == SCHEMA_VERSION
     assert isinstance(out["schema_version"], int)
 
 def test_phase2_legacy_basketball_fields_still_present():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "", "basketball")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "basketball")
     for key in ("offensive_control_status", "defender_status", "court_geometry"):
         assert key in out, f"legacy field {key} was removed"
 
 def test_phase2_sport_details_present_and_keyed_by_sport():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "", "basketball")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "basketball")
     assert "sport_details" in out
     assert "basketball" in out["sport_details"]
 
 def test_phase2_sport_details_basketball_has_expected_keys():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "", "basketball")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "basketball")
     assert set(out["sport_details"]["basketball"].keys()) == {
         "offensive_control_status",
         "defender_status",
@@ -263,14 +263,14 @@ def test_phase2_sport_details_basketball_has_expected_keys():
     }
 
 def test_phase2_legacy_and_new_values_synchronized():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "anthropic_four_agent", "q", "basketball")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "anthropic_four_agent", "basketball")
     details = out["sport_details"]["basketball"]
     assert details["offensive_control_status"] == out["offensive_control_status"]
     assert details["defender_status"] == out["defender_status"]
     assert details["court_geometry"] == out["court_geometry"]
 
 def test_phase2_sport_details_basketball_validates_against_model():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "", "basketball")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "basketball")
     # Round-trips cleanly through the Pydantic model — i.e. it's a valid response.
     model = BasketballDetails.model_validate(out["sport_details"]["basketball"])
     assert model.model_dump() == out["sport_details"]["basketball"]
@@ -278,14 +278,14 @@ def test_phase2_sport_details_basketball_validates_against_model():
 def test_phase2_defaults_path_stays_synchronized():
     # When perception omits the basketball blocks, legacy defaults and the new
     # block must still match (both derived from the same computed values).
-    out = _frontend_perception({"event_type": "unclear", "summary": "x"}, "mock", "", "basketball")
+    out = _frontend_perception({"event_type": "unclear", "summary": "x"}, "mock", "basketball")
     details = out["sport_details"]["basketball"]
     assert details["defender_status"] == out["defender_status"]
     assert details["court_geometry"] == out["court_geometry"]
     assert details["offensive_control_status"] == out["offensive_control_status"]
 
 def test_phase2_non_basketball_sport_details_uses_placeholder():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "", "hockey")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "hockey")
     # Legacy basketball fields are still present (unchanged behavior)...
     assert "defender_status" in out and "court_geometry" in out
     # ...and sport_details carries the hockey placeholder, not basketball.
@@ -293,5 +293,5 @@ def test_phase2_non_basketball_sport_details_uses_placeholder():
     assert "offensive_control_status" not in out["sport_details"]["hockey"]
 
 def test_phase2_unknown_sport_details_is_empty_block():
-    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "", "curling")
+    out = _frontend_perception(_LEGACY_PERCEPTION_INPUT, "mock", "curling")
     assert out["sport_details"] == {"curling": {}}

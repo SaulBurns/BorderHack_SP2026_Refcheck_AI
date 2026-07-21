@@ -1,14 +1,15 @@
 """Soccer rulebook corpus (Sprint 10 — first new sport).
 
-Keyword-retrievable rule records for association football (soccer), mirroring the
-shape of ``rules/basketball_rules.py``: each entry has a ``call_type``,
-``rule_applied``, and ``summary``. Keys are lowercase and become the uppercase
-``rule_id`` used by retrieval, adjudication citations, and the demo/eval datasets.
+Rule records for association football (soccer), mirroring the shape of
+``rules/basketball_rules.py``: each entry has a ``call_type``, ``rule_applied``,
+and ``summary``. Keys are lowercase and become the uppercase ``rule_id`` used by
+adjudication citations and the demo/eval datasets. The full corpus is injected
+into the adjudicators (Sprint 16A removed the retrieval stage).
 
 Coverage is scoped to the Sprint 10 supported events: foul, offside, handball,
 penalty, red card, yellow card, and goal. Summaries paraphrase the IFAB Laws of
 the Game (Laws 10, 11, 12, 14) in plain, reviewer-facing language — they are a
-retrieval corpus, not a legal citation.
+reviewer corpus, not a legal citation.
 """
 
 SOCCER_RULES = {

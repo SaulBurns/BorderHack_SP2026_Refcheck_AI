@@ -7,8 +7,7 @@ football. Registered in ``sports/registry.py``; the pipeline resolves it with
 Layout::
 
     sports/soccer/
-        prompts.py       # perception / retrieval / adjudicator prompts
-        rules.py         # rule-retrieval boosts (corpus lives in rules/soccer_rules.py)
+        prompts.py       # perception / adjudicator prompts
         tracking.py      # tracked-evidence layer (possession, ball movement)
         extractor.py     # SoccerDetailExtractor -> SoccerDetails
         game_context.py  # metadata provider seam (None in Sprint 10)

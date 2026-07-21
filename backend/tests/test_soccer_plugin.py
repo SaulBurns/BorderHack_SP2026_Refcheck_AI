@@ -1,7 +1,7 @@
 """Soccer sport plugin tests (Sprint 10 — first new sport).
 
-Covers the full soccer plugin surface: registry resolution, prompts, rule
-retrieval + boosts, the detail extractor, and the tracking-evidence layer, plus
+Covers the full soccer plugin surface: registry resolution, prompts, the rule
+corpus, the detail extractor, and the tracking-evidence layer, plus
 the pipeline seams (sport_details / tracked_evidence delegation) that make
 ``sport="soccer"`` route through the plugin without any core-pipeline change.
 """
@@ -89,7 +89,7 @@ def test_plugin_prompt_matches_catalog():
 
 
 # ---------------------------------------------------------------------------
-# Rule corpus + retrieval boosts
+# Rule corpus
 # ---------------------------------------------------------------------------
 
 def test_soccer_rules_cover_supported_events():
@@ -105,46 +105,6 @@ def test_soccer_rule_records_have_expected_shape():
     for r in records:
         assert set(r.keys()) >= {"rule_id", "section_title", "text", "call_type"}
         assert r["rule_id"] == r["rule_id"].upper()
-
-@pytest.mark.parametrize(
-    "rule_id,haystack,expected_positive",
-    [
-        ("PENALTY", "foul inside the penalty area box", True),
-        ("OFFSIDE", "attacker beyond the last defender offside", True),
-        ("HANDBALL", "deliberate handball arm above shoulder", True),
-        ("RED_CARD", "serious foul play violent excessive force", True),
-        ("YELLOW_CARD", "reckless challenge caution unsporting", True),
-        ("FOUL", "a clear trip and push", True),
-        ("GOAL", "whole of the ball over the goal line", True),
-        ("PENALTY", "a quiet throw-in near midfield", False),
-    ],
-)
-def test_soccer_boosts(rule_id, haystack, expected_positive):
-    from sports.soccer.rules import boost_rule_score
-    score = boost_rule_score(rule_id, haystack)
-    assert (score > 0) is expected_positive
-
-def test_retrieve_rules_soccer_ranks_penalty_first():
-    from services.ai_analyzer import _retrieve_rules
-    perception = {
-        "event_type": "possible_penalty",
-        "summary": "defender trips the attacker inside the penalty area",
-        "in_penalty_area": True,
-        "foul_direction": "defender_on_attacker",
-    }
-    rules = _retrieve_rules("penalty kick foul penalty area spot", perception, "soccer")
-    assert 1 <= len(rules) <= 5
-    assert rules[0]["rule_id"] == "PENALTY"
-
-def test_retrieve_rules_soccer_ranks_offside_first():
-    from services.ai_analyzer import _retrieve_rules
-    perception = {
-        "event_type": "possible_offside",
-        "summary": "attacker beyond the second-to-last defender when the ball is played",
-        "offside_relevant": True,
-    }
-    rules = _retrieve_rules("offside position second-to-last defender interfering", perception, "soccer")
-    assert rules[0]["rule_id"] == "OFFSIDE"
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +214,6 @@ def test_mock_result_sport_field_soccer():
 
 def test_frontend_perception_soccer_has_sport_details_block():
     from services.ai_analyzer import _frontend_perception
-    result = _frontend_perception({"event_type": "possible_foul", "summary": "test"}, "mock", "", "soccer")
+    result = _frontend_perception({"event_type": "possible_foul", "summary": "test"}, "mock", "soccer")
     assert result["sport"] == "soccer"
     assert "soccer" in result["sport_details"]

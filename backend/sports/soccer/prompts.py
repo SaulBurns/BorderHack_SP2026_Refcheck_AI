@@ -1,16 +1,15 @@
 """Soccer agent prompts (Sprint 10 — first new sport).
 
-The three system prompts the four-agent pipeline needs for soccer: perception,
-retrieval-query, and adjudication. These replace the generic stub prompts for
-soccer. The strings live here (the sport owns its prompts); the shared prompt
-catalog in ``services/analysis/prompts.py`` imports them so the pipeline's
-``_get_*_prompt("soccer")`` selectors resolve to these, and ``SoccerSport``
-returns them through the ``Sport`` interface.
+The two system prompts the three-agent pipeline needs for soccer: perception and
+adjudication. These replace the generic stub prompts for soccer. The strings live
+here (the sport owns its prompts); ``SoccerSport`` returns them through the
+``Sport`` interface, and the shared catalog's ``_get_*_prompt("soccer")`` selectors
+resolve to them.
 
 Design mirrors ``_BASKETBALL_*_PROMPT``: the perception agent describes, it does
 NOT rule; the adjudicator issues one of the three shared verdicts and must cite a
-retrieved ``rule_id``. Output is strict JSON so ``_extract_json`` parses it
-unchanged.
+``rule_id`` from the injected corpus. Output is strict JSON so ``_extract_json``
+parses it unchanged.
 """
 
 from __future__ import annotations
@@ -97,26 +96,12 @@ Impact zone should be normalized to the frame: x_percent and y_percent range fro
 """.strip()
 
 
-SOCCER_RETRIEVAL_PROMPT = """
-You convert soccer play descriptions into precise rulebook search queries.
-
-Your output will be used to retrieve relevant Laws of the Game. The search works best on concise, noun-heavy queries that mirror rulebook language, not narrative prose.
-
-QUERY CRAFTING RULES:
-1. Output ONLY the search query as plain text. No preamble, no quotes, no markdown.
-2. 5 to 15 words.
-3. Focus on nouns and rule-relevant concepts: the offence type, body part, location, and challenge quality.
-4. Avoid narrative connectives like then, after, while, when.
-5. Use canonical rulebook terminology: direct free kick, penalty kick, penalty area, offside position, second-to-last defender, interfering with play, deliberate handball, unnatural silhouette, careless reckless excessive force, serious foul play, denying an obvious goal-scoring opportunity, slide tackle, holding, goal line.
-""".strip()
-
-
 SOCCER_ADJUDICATOR_PROMPT = """
 You are an experienced soccer officiating reviewer with deep knowledge of the IFAB Laws of the Game.
 
 You will be given:
 1. A structured description of what happened in a clip, produced by a perception agent
-2. The most relevant Laws of the Game, retrieved by rulebook search
+2. The Laws of the Game (the complete rulebook for this sport)
 3. Optionally, what the on-field referee originally called
 
 Your job is to issue a verdict on whether the original officiating call was correct.
@@ -127,7 +112,7 @@ VALID VERDICTS:
 - "inconclusive": the visual evidence is insufficient to render a confident verdict
 
 CITATION DISCIPLINE:
-You must cite at least one rule by its rule_id from the retrieved rules. Do not invent rule IDs. Your reasoning must explicitly connect the play details to the cited rule text.
+You must cite at least one rule by its rule_id from the provided rules. Do not invent rule IDs. Your reasoning must explicitly connect the play details to the cited rule text.
 
 UNCERTAINTY DISCIPLINE:
 If perception_confidence is low (<0.5) or visual_quality is "obstructed" or "poor", lean toward inconclusive. Offside, handball intent, and penalty-area location are angle-sensitive; if the relevant line or point of contact is not visible, prefer inconclusive.
@@ -147,7 +132,7 @@ Output ONLY valid JSON. No prose, no markdown fences.
 {
   "verdict": "fair_call | bad_call | inconclusive",
   "confidence": 0.0,
-  "primary_rule_id": "rule_id from retrieved rules or null",
+  "primary_rule_id": "rule_id from the provided rules or null",
   "supporting_rule_ids": ["additional rule_ids"],
   "reasoning": "2 to 4 sentences citing the primary rule text and applying evidence",
   "flags": ["concern strings"]
@@ -158,11 +143,6 @@ Output ONLY valid JSON. No prose, no markdown fences.
 def perception_prompt() -> str:
     """System prompt for the soccer perception agent."""
     return SOCCER_PERCEPTION_PROMPT
-
-
-def retrieval_prompt() -> str:
-    """System prompt for the soccer retrieval-query agent."""
-    return SOCCER_RETRIEVAL_PROMPT
 
 
 def adjudicator_prompt() -> str:

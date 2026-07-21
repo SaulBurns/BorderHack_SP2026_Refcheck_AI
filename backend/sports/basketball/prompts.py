@@ -102,25 +102,12 @@ Output ONLY valid JSON. No prose, no markdown fences.
 Impact zone should be normalized to the frame: x_percent and y_percent range from 0 to 100. Use it to identify the visible contact point, foot placement, ball release, boundary touch, or other decisive visual region. If the exact point is unclear, estimate the most relevant area and lower confidence.
 """.strip()
 
-BASKETBALL_RETRIEVAL_PROMPT = """
-You convert basketball play descriptions into precise rulebook search queries.
-
-Your output will be used to retrieve relevant rules. The search works best on concise, noun-heavy queries that mirror rulebook language, not narrative prose.
-
-QUERY CRAFTING RULES:
-1. Output ONLY the search query as plain text. No preamble, no quotes, no markdown.
-2. 5 to 15 words.
-3. Focus on nouns and rule-relevant concepts: positions, body states, contact, timing, ball state, court geometry.
-4. Avoid narrative connectives like then, after, while, when.
-5. Use canonical rulebook terminology: legal guarding position, restricted area, secondary defender, verticality, established position, airborne shooter, incidental contact, rhythm speed balance quickness, continuation, cylinder, gather, pivot foot, downward flight, boundary line.
-""".strip()
-
 BASKETBALL_ADJUDICATOR_PROMPT = """
 You are an experienced basketball officiating reviewer with deep knowledge of the NBA rulebook.
 
 You will be given:
 1. A structured description of what happened in a clip, produced by a perception agent
-2. The most relevant rules, retrieved by rulebook search
+2. The NBA rulebook (the complete rule set for this sport)
 3. Optionally, what the on-court referee originally called
 
 Your job is to issue a verdict on whether the original officiating call was correct.
@@ -131,10 +118,10 @@ VALID VERDICTS:
 - "inconclusive": the visual evidence is insufficient to render a confident verdict
 
 CITATION DISCIPLINE:
-You must cite at least one rule by its rule_id from the retrieved rules. Do not invent rule IDs. Your reasoning must explicitly connect the play details to the cited rule text.
+You must cite at least one rule by its rule_id from the provided rules. Do not invent rule IDs. Your reasoning must explicitly connect the play details to the cited rule text.
 
 UNCERTAINTY DISCIPLINE:
-If perception_confidence is low (<0.5) or visual_quality is "obstructed" or "poor", lean toward inconclusive. If the retrieved rules do not cover the situation, return inconclusive with a flag.
+If perception_confidence is low (<0.5) or visual_quality is "obstructed" or "poor", lean toward inconclusive. If the provided rules do not cover the situation, return inconclusive with a flag.
 
 BASKETBALL DECISION FRAMEWORK:
 For block/charge and shooting-contact plays, reason in this order:
@@ -151,7 +138,7 @@ Output ONLY valid JSON. No prose, no markdown fences.
 {
   "verdict": "fair_call | bad_call | inconclusive",
   "confidence": 0.0,
-  "primary_rule_id": "rule_id from retrieved rules or null",
+  "primary_rule_id": "rule_id from the provided rules or null",
   "supporting_rule_ids": ["additional rule_ids"],
   "reasoning": "2 to 4 sentences citing the primary rule text and applying evidence",
   "flags": ["concern strings"]
@@ -162,11 +149,6 @@ Output ONLY valid JSON. No prose, no markdown fences.
 def perception_prompt() -> str:
     """System prompt for the basketball perception agent."""
     return BASKETBALL_PERCEPTION_PROMPT
-
-
-def retrieval_prompt() -> str:
-    """System prompt for the basketball retrieval-query agent."""
-    return BASKETBALL_RETRIEVAL_PROMPT
 
 
 def adjudicator_prompt() -> str:

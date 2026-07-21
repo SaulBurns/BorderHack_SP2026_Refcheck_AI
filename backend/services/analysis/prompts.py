@@ -97,21 +97,11 @@ Output ONLY valid JSON. No prose, no markdown fences.
 """.strip()
 
 
-def _make_stub_retrieval_prompt(sport: str) -> str:
-    return f"""
-You convert {sport} play descriptions into short rulebook search queries.
-
-Output ONLY the search query as plain text. No preamble, no quotes, no markdown.
-5 to 15 words.
-Focus on the type of play, player actions, and any contact observed.
-""".strip()
-
-
 def _make_stub_adjudicator_prompt(sport: str) -> str:
     return f"""
 You are a {sport} officiating reviewer.
 
-You will be given a structured description of a play and any retrieved rules.
+You will be given a structured description of a play and the sport's rulebook.
 Issue a verdict on whether the original call was correct.
 
 VALID VERDICTS:
@@ -144,11 +134,6 @@ Output ONLY valid JSON. No prose, no markdown fences.
 def _get_perception_prompt(sport: str) -> str:
     from sports import get_sport
     return get_sport(sport).perception_prompt()
-
-
-def _get_retrieval_prompt(sport: str) -> str:
-    from sports import get_sport
-    return get_sport(sport).retrieval_prompt()
 
 
 def _get_adjudicator_prompt(sport: str) -> str:

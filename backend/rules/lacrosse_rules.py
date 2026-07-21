@@ -1,15 +1,16 @@
 """Lacrosse rulebook corpus (Sprint 12 — fourth sport).
 
-Keyword-retrievable rule records for men's field lacrosse, mirroring the shape of
+Rule records for men's field lacrosse, mirroring the shape of
 ``rules/basketball_rules.py``, ``rules/soccer_rules.py``, and
 ``rules/hockey_rules.py``: each entry has a ``call_type``, ``rule_applied``, and
 ``summary``. Keys are lowercase and become the uppercase ``rule_id`` used by
-retrieval, adjudication citations, and the demo/eval datasets.
+adjudication citations and the demo/eval datasets. The full corpus is injected
+into the adjudicators (Sprint 16A removed the retrieval stage).
 
 Coverage is scoped to the Sprint 12 supported events: illegal body check, slash,
 push, crease violation, offside, and loose-ball push. Summaries paraphrase the
 NCAA men's lacrosse rulebook in plain, reviewer-facing language — they are a
-retrieval corpus, not a legal citation.
+reviewer corpus, not a legal citation.
 """
 
 LACROSSE_RULES = {

@@ -46,8 +46,7 @@ def test_real_anthropic_path_has_no_fallback_reason():
     agent_result = {
         "provider_used": "anthropic_four_agent",
         "detector": "claude_vision",
-        "retrieval_query": "q",
-        "retrieved_rules": [],
+        "rules": [],
         "perception": {"sport": "basketball", "event_type": "unclear"},
         "adjudicator_a": {"verdict": "fair_call", "confidence": 0.7, "primary_rule_id": None, "reasoning": "r", "flags": []},
         "adjudicator_b": {"verdict": "fair_call", "confidence": 0.7, "primary_rule_id": None, "reasoning": "r", "flags": []},

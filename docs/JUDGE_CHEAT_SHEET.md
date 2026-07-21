@@ -5,17 +5,17 @@ One page. What it is, why it's hard, and where to look.
 ## The pitch (30 seconds)
 
 Upload a short basketball clip + the call the ref made. RefCheck AI runs a
-**four-agent AI pipeline** — it *sees* the play, *looks up* the relevant rule, has
-**two independent adjudicators** argue it from opposite biases, then **reconciles**
-them into a verdict: **fair call / bad call / inconclusive**, with confidence, a cited
-rule, and the reasoning. It runs on **Anthropic, Gemini, or fully offline** — switching
-is one environment variable.
+**three-agent AI pipeline** — it *sees* the play, then has **two independent
+adjudicators**, each handed the sport's complete rulebook, argue it from opposite
+biases, then **reconciles** them into a verdict: **fair call / bad call / inconclusive**,
+with confidence, a cited rule, and the reasoning. It runs on **Anthropic, Gemini, or
+fully offline** — switching is one environment variable.
 
 ## Why this is more than a prompt wrapper
 
 | Differentiator | Where it lives |
 |---|---|
-| **Four specialized agents**, not one prompt — perception → retrieval → two adjudicators → reconciliation | `services/ai_analyzer.py` |
+| **Three specialized agents**, not one prompt — perception → two adjudicators (each handed the full rulebook) → reconciliation | `services/ai_analyzer.py` |
 | **Provider abstraction** — Anthropic / Gemini / Mock behind one interface; add a provider in ~15 lines | `services/ai/` |
 | **Hybrid CV grounding** — YOLO tracked detections (players, ball, possession, movement) feed both adjudicators and calibrate confidence, but never override the semantic verdict | `services/extractors/basketball_vision.py` |
 | **Graceful degradation everywhere** — no key / no ffmpeg / no GPU still returns a labeled result; failures are surfaced in `diagnostics`, never hidden | `services/ai_analyzer.py`, `services/detectors/hybrid.py` |
@@ -70,5 +70,5 @@ For the full UI: run the frontend (`cd frontend && npm run dev`) and open
 
 ## Architecture in one line
 
-`clip → ffmpeg frames → perception → rule retrieval → adjudicator A ∥ B → reconcile →
-verdict + cited rule + diagnostics`. Diagram: [ARCHITECTURE.md](ARCHITECTURE.md).
+`clip → ffmpeg frames → perception → inject full rule corpus → adjudicator A ∥ B →
+reconcile → verdict + cited rule + diagnostics`. Diagram: [ARCHITECTURE.md](ARCHITECTURE.md).

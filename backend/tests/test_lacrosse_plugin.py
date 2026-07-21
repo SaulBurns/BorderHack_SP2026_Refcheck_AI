@@ -1,7 +1,7 @@
 """Lacrosse sport plugin tests (Sprint 12 — fourth sport).
 
 Covers the full lacrosse plugin surface: registry resolution, prompts, rule
-retrieval + boosts, the detail extractor, and the tracking-evidence layer, plus
+corpus, the detail extractor, and the tracking-evidence layer, plus
 the pipeline seams (sport_details / tracked_evidence delegation) that make
 ``sport="lacrosse"`` route through the plugin without any core-pipeline change.
 """
@@ -94,7 +94,7 @@ def test_plugin_prompt_matches_catalog():
 
 
 # ---------------------------------------------------------------------------
-# Rule corpus + retrieval boosts
+# Rule corpus
 # ---------------------------------------------------------------------------
 
 def test_lacrosse_rules_cover_supported_events():
@@ -111,53 +111,6 @@ def test_lacrosse_rule_records_have_expected_shape():
         assert set(r.keys()) >= {"rule_id", "section_title", "text", "call_type"}
         assert r["rule_id"] == r["rule_id"].upper()
 
-@pytest.mark.parametrize(
-    "rule_id,haystack,expected_positive",
-    [
-        ("ILLEGAL_BODY_CHECK", "body check from behind on a defenseless player head", True),
-        ("SLASH", "a forceful one-handed slash with the crosse to the body", True),
-        ("PUSH", "pushing pressure applied to the opponent back in possession", True),
-        ("CREASE_VIOLATION", "attacker dives into the goal crease as ball crosses", True),
-        ("OFFSIDE", "team failed to keep required players across the midline offside", True),
-        ("LOOSE_BALL_PUSH", "pushed an opponent more than five yards from the loose ball", True),
-        ("CREASE_VIOLATION", "a routine clear up the sideline", False),
-    ],
-)
-def test_lacrosse_boosts(rule_id, haystack, expected_positive):
-    from sports.lacrosse.rules import boost_rule_score
-    score = boost_rule_score(rule_id, haystack)
-    assert (score > 0) is expected_positive
-
-def test_push_and_loose_ball_push_boosts_are_disjoint():
-    # A loose-ball scenario must not boost PUSH; a possession push must not boost
-    # LOOSE_BALL_PUSH — the two pushing rules disambiguate cleanly.
-    from sports.lacrosse.rules import boost_rule_score
-    loose = "pushed an opponent within five yards of the loose ball"
-    possession = "pushing the ball carrier in the back"
-    assert boost_rule_score("LOOSE_BALL_PUSH", loose) > 0
-    assert boost_rule_score("PUSH", loose) == 0
-    assert boost_rule_score("PUSH", possession) > 0
-    assert boost_rule_score("LOOSE_BALL_PUSH", possession) == 0
-
-def test_retrieve_rules_lacrosse_ranks_crease_first():
-    from services.ai_analyzer import _retrieve_rules
-    perception = {
-        "event_type": "possible_crease_violation",
-        "summary": "attacking player dives and lands in the goal crease as the ball crosses",
-        "crease_violation": True,
-    }
-    rules = _retrieve_rules("crease violation dive goal crease goalie", perception, "lacrosse")
-    assert 1 <= len(rules) <= 5
-    assert rules[0]["rule_id"] == "CREASE_VIOLATION"
-
-def test_retrieve_rules_lacrosse_ranks_illegal_body_check_first():
-    from services.ai_analyzer import _retrieve_rules
-    perception = {
-        "event_type": "possible_illegal_body_check",
-        "summary": "defenseless player hit from behind above the shoulders",
-    }
-    rules = _retrieve_rules("illegal body check from behind defenseless head targeting", perception, "lacrosse")
-    assert rules[0]["rule_id"] == "ILLEGAL_BODY_CHECK"
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +218,6 @@ def test_mock_result_sport_field_lacrosse():
 
 def test_frontend_perception_lacrosse_has_sport_details_block():
     from services.ai_analyzer import _frontend_perception
-    result = _frontend_perception({"event_type": "possible_slash", "summary": "test"}, "mock", "", "lacrosse")
+    result = _frontend_perception({"event_type": "possible_slash", "summary": "test"}, "mock", "lacrosse")
     assert result["sport"] == "lacrosse"
     assert "lacrosse" in result["sport_details"]

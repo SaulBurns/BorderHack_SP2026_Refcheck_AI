@@ -38,8 +38,7 @@ def _controlled_detections():
 def _agent_result(detections=None):
     result = {
         "provider_used": "anthropic_four_agent",
-        "retrieval_query": "blocking foul",
-        "retrieved_rules": [],
+        "rules": [],
         "perception": {"sport": "basketball", "event_type": "unclear"},
         "adjudicator_a": {"verdict": "inconclusive", "confidence": 0.5, "primary_rule_id": None, "reasoning": "r", "flags": []},
         "adjudicator_b": {"verdict": "inconclusive", "confidence": 0.5, "primary_rule_id": None, "reasoning": "r", "flags": []},
@@ -92,8 +91,6 @@ def _run_pipeline_capturing(monkeypatch, detections):
 
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setattr(ai, "get_detector", lambda name=None: _FakeDetector())
-    monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
-    monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
     monkeypatch.setattr(ai, "_build_adjudicator_prompt", fake_build)
     monkeypatch.setattr(ai, "_adjudicator_agent", lambda **k: {"verdict": "inconclusive", "confidence": 0.5})
 

@@ -1,8 +1,9 @@
 # Backend Performance Optimization (Sprint 6)
 
-This document records every optimization applied to the four-agent analysis
+This document records every optimization applied to the multi-agent analysis
 pipeline in Sprint 6, the before/after benchmark numbers, and how to reproduce
-them. **The public API contract is unchanged** — every optimization is either a
+them. (The pipeline was 4 agents at the time of Sprint 6; Sprint 16A later removed
+the Retrieval agent, so it is now 3 — see the notes below.) **The public API contract is unchanged** — every optimization is either a
 transparent internal change or opt-in behind an environment flag (default OFF).
 
 ## How to reproduce the benchmark
@@ -93,11 +94,11 @@ identical to before.
 static rulebook was rebuilt — and `rules.sport_config` re-imported — on every
 retrieval (once per analysis). Now built once per sport per process.
 
-### 5. Rule-ranking memoization (CPU)
-Rule ranking is a pure function of `(haystack, sport, limit)`; `_rank_rules` is
-`@lru_cache`-d, so repeated identical retrievals (demo/benchmark loops) skip
-re-scoring. `_retrieve_rules` still returns a fresh `list`, so callers see no
-behavioral change.
+### 5. Rule-ranking memoization (CPU) — _superseded by Sprint 16A_
+Sprint 6 memoized the keyword rule ranker (`_rank_rules`/`_retrieve_rules`) with
+`@lru_cache`. **Sprint 16A removed the retrieval/ranking stage entirely** — the full
+rule corpus is injected into the adjudicators — so there is nothing left to rank or
+memoize here. The corpus load itself is still cached (see §4, `_rule_records`).
 
 ### 6. Provider-instance cache (memory + CPU)
 `get_provider()` re-read `AI_PROVIDER` and instantiated a fresh provider object
@@ -114,7 +115,7 @@ analysis. Both `/analyze` and `/api/analyze` now `await asyncio.to_thread(...)`,
 so the event loop stays free to serve other requests. The response is identical.
 
 ### 8. Opt-in analysis result cache — "reduce duplicate Claude requests"
-Within a single analysis the four agents are all distinct calls; there are **no
+Within a single analysis the agents are all distinct calls; there are **no
 duplicate model requests to remove**. Duplicate requests arise *across* analyses
 of the same clip (demo suites, evaluation benchmarks re-running a dataset, a user
 resubmitting). When `ANALYSIS_CACHE` is truthy (`1`/`true`/`yes`/`on`), the fully
@@ -129,14 +130,14 @@ intentionally non-deterministic unless caching is explicitly enabled.
 
 ## A note on "cache embeddings"
 
-The Sprint 6 brief asked to *cache embeddings*. The production retriever
-(`_retrieve_rules`) is **keyword/heuristic-based — there are no embeddings and no
-FAISS index in this pipeline** (the FAISS/`sentence-transformers` description in
-older docs describes an architecture this backend never shipped). The equivalent
-caching wins were therefore applied to what actually exists: the static rule
-corpus (#4) and the rule-ranking step (#5), plus the opt-in whole-result cache
-(#8). If an embedding-based retriever is added later, its embeddings should be
-cached by content hash following the same pattern.
+The Sprint 6 brief asked to *cache embeddings*. There were never any embeddings or
+FAISS index in this pipeline (the FAISS/`sentence-transformers` description in older
+docs describes an architecture this backend never shipped) — and as of Sprint 16A
+there is no retrieval stage at all: the full rule corpus is injected into the
+adjudicators. The equivalent caching win therefore lives in the static rule-corpus
+load (#4, `_rule_records`), plus the opt-in whole-result cache (#8). If an
+embedding-based retriever is added later, its embeddings should be cached by content
+hash following the same pattern.
 
 ## What was intentionally *not* changed
 

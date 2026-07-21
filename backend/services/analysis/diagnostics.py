@@ -73,7 +73,6 @@ def _yolo_influence(detections: RawDetections | None, tracked_evidence: dict | N
 
 def _diagnostics_payload(
     provider_used: str,
-    retrieval_query: str,
     detections: RawDetections | None,
     detector: str | None = None,
     frames_analyzed: int = 0,
@@ -100,7 +99,6 @@ def _diagnostics_payload(
         "frames_analyzed": frames_analyzed,
         "detections_present": detections is not None,
         "sport_details_source": "detections" if detections is not None else "perception",
-        "retrieval_query": retrieval_query,
         # metadata_* are filled in by analyze_clip (after game_context resolves).
         "metadata_attempted": False,
         "metadata_status": "not_applicable",

@@ -1,9 +1,11 @@
 # RefCheck AI — Backend Architecture Summary
 
 A multi-agent pipeline that reviews a sports officiating call: a clip comes in,
-four LLM agents perceive → retrieve rules → adjudicate (×2) → reconcile, and a
-structured verdict comes out. Everything runs against Anthropic, Gemini, or an
-offline **mock** with no code change — selected by the `AI_PROVIDER` env var.
+three LLM agents perceive → adjudicate (×2, each handed the sport's complete rule
+corpus) → reconcile, and a structured verdict comes out. Everything runs against
+Anthropic, Gemini, or an offline **mock** with no code change — selected by the
+`AI_PROVIDER` env var. (Sprint 16A removed the former Retrieval agent; the small
+rule corpora are now injected in full.)
 
 ## Request flow
 
@@ -13,11 +15,10 @@ main.py  (FastAPI)
                                                 │
         frames  ◀── services/analysis/frames.py │ (ffprobe+ffmpeg, disk-cached)
                                                 ▼
-                       _run_four_agent_pipeline()
+                       _run_four_agent_pipeline()   [3 agents; name kept as a seam]
         detector ── services/detectors/ ──▶ perception dict
-        query    ── _retrieval_agent (LLM)
-        rules    ── services/analysis/retrieval.py (keyword scoring, no embeddings)
-        verdicts ── adjudicator A ∥ B  (ThreadPoolExecutor, one shared prompt)
+        rules    ── services/analysis/rule_corpus.py (full corpus, no retrieval/ranking)
+        verdicts ── adjudicator A ∥ B  (ThreadPoolExecutor, one shared prompt w/ full corpus)
                                                 │
                        _build_response() → _reconcile()
                                                 ▼
@@ -29,8 +30,8 @@ main.py  (FastAPI)
 | Layer | Package | Responsibility | Swap seam |
 | --- | --- | --- | --- |
 | HTTP | `main.py` | routes, CORS, thread offload, persistence call | — |
-| Orchestration | `services/ai_analyzer.py` | the 4-agent flow, caches, reconciliation, response build | — |
-| Pipeline internals | `services/analysis/` | prompts, frames, retrieval, mock result, diagnostics, contracts | — |
+| Orchestration | `services/ai_analyzer.py` | the 3-agent flow, caches, reconciliation, response build | — |
+| Pipeline internals | `services/analysis/` | prompts, frames, rule corpus, mock result, diagnostics, contracts | — |
 | LLM providers | `services/ai/` | Anthropic / Gemini / mock behind `AIProvider` | `AI_PROVIDER` |
 | Perception detectors | `services/detectors/` | claude_vision / yolov8 / hybrid behind `Detector` | `DETECTOR` |
 | Sport detail extractors | `services/extractors/` | detections → per-sport `SportDetails` | by `sport` |

@@ -24,9 +24,8 @@ from services.analysis.prompts import (
     SKEPTICAL_FRAMING,
     _get_adjudicator_prompt,
     _get_perception_prompt,
-    _get_retrieval_prompt,
 )
-from services.analysis.retrieval import _retrieve_rules, _rule_records, _rules_text
+from services.analysis.rule_corpus import _rule_records, _rules_text
 from services.detectors import RawDetections, get_detector
 from services.extractors import get_extractor
 from sports import get_sport
@@ -34,7 +33,7 @@ from services.perception_schema import SCHEMA_VERSION
 from services.text_utils import clean as _clean
 from services.verdicts import normalize_verdict as _frontend_verdict
 
-# `_extract_frames`, `_retrieve_rules`, `_rule_records`, `_mock_ai_result`,
+# `_extract_frames`, `_rule_records`, `_rules_text`, `_mock_ai_result`,
 # `_diagnostics_payload`, and the prompt helpers are imported (not defined) here
 # so the orchestration functions below call them by bare name — which keeps every
 # `from services.ai_analyzer import ...` path and `monkeypatch.setattr(ai, ...)`
@@ -229,56 +228,6 @@ def _perception_agent(frame_paths: list[Path], original_call: str, sport: str) -
     )
 
 
-def _build_retrieval_prompt(perception: dict, sport: str) -> str:
-    """Sport-agnostic retrieval-agent user prompt (Sprint 14).
-
-    Previously hardcoded basketball perception fields (court zone, restricted area,
-    legal guarding position, …), which read as blanks for every other sport. It now
-    surfaces the sport-neutral core (event type, summary, contact, object state)
-    plus every signal the sport's ``sport_details`` block exposes, so retrieval
-    queries are as informed for soccer/hockey/lacrosse as for basketball.
-    """
-    lines = [
-        f"Sport: {sport}",
-        f"Event type: {perception.get('event_type', 'unclear')}",
-        f"Summary: {perception.get('summary', '')}",
-        f"Contact detected: {perception.get('contact_detected', False)}",
-        f"Contact location: {perception.get('contact_location', 'unclear')}",
-        f"Object/ball state: {perception.get('ball_state', 'unclear')}",
-    ]
-    # Flatten the sport's structured signals into "key: value" lines so any sport's
-    # detail block informs the query without a per-sport template.
-    sport_details = perception.get("sport_details") or {}
-    block = sport_details.get(sport) if isinstance(sport_details, dict) else None
-    for key, value in _flatten_detail_items(block):
-        lines.append(f"{key.replace('_', ' ').capitalize()}: {value}")
-
-    lines.append("\nWrite the rulebook search query.")
-    return "\n".join(lines).strip()
-
-
-def _flatten_detail_items(block: object, prefix: str = "") -> list[tuple[str, object]]:
-    """Flatten a (possibly nested) sport_details block to (key, scalar) pairs,
-    skipping empty/unclear values so they do not clutter the query prompt."""
-    items: list[tuple[str, object]] = []
-    if isinstance(block, dict):
-        for key, value in block.items():
-            if isinstance(value, dict):
-                items.extend(_flatten_detail_items(value, prefix))
-            elif value not in (None, "", "unclear", False):
-                items.append((key, value))
-    return items
-
-
-def _retrieval_agent(perception: dict, sport: str) -> str:
-    return _send_messages(
-        system_prompt=_get_retrieval_prompt(sport),
-        user_content=_build_retrieval_prompt(perception, sport),
-        temperature=0,
-        max_tokens=80,
-    ).strip().strip('"')
-
-
 def _build_adjudicator_prompt(
     *,
     perception: dict,
@@ -292,7 +241,9 @@ def _build_adjudicator_prompt(
     The user prompt is *identical* for both adjudicators — only the system
     framing and temperature differ. Building it once (Sprint 6) avoids
     serializing the perception dict, sport signals, tracked evidence and
-    rulebook text twice per analysis. Byte-for-byte the same prompt as before.
+    rulebook text twice per analysis. `rules` is the sport's *complete* rule
+    corpus (Sprint 16A removed the retrieval stage), injected in full so the
+    adjudicators can cite any applicable rule directly.
     """
     original_call_line = (
         f"'{original_call}'"
@@ -326,7 +277,7 @@ Original call: {original_call_line}
 PERCEPTION OUTPUT:
 {json.dumps(perception, indent=2)}{sport_details_section}{tracked_evidence_section}
 
-RETRIEVED RULES:
+SPORT RULEBOOK (the complete rule set for this sport — cite the rule_id that applies):
 {_rules_text(rules)}
 
 {_COT_ISOLATION_INSTRUCTION}
@@ -340,8 +291,8 @@ RETRIEVED RULES:
 # both adjudicators (the user prompt is built once), so it is sport-agnostic.
 _COT_ISOLATION_INSTRUCTION = (
     "First, think through the decision privately inside a single <thinking>...</thinking> "
-    "block: restate the decisive facts from the perception, map them to the retrieved "
-    "rule text, and weigh the uncertainty. Then, OUTSIDE the thinking block, output ONLY "
+    "block: restate the decisive facts from the perception, map them to the applicable "
+    "rulebook rule, and weigh the uncertainty. Then, OUTSIDE the thinking block, output ONLY "
     "the final verdict as a single JSON object. Do not repeat the reasoning outside the "
     "JSON; the `reasoning` field should be a concise 2-4 sentence justification."
 )
@@ -375,9 +326,15 @@ def _run_four_agent_pipeline(
     referee_name: str,
     video_metadata: dict | None,
 ) -> AgentResult:
+    # Runs the three real agents: perception, then adjudicators A ∥ B (Sprint 16A
+    # removed the retrieval agent — the sport rule corpus is injected in full). The
+    # function name and the ``anthropic_four_agent`` provider tag below are kept
+    # unchanged as backward-compatible seams (monkeypatch targets, the
+    # `_real_pipeline_ran` check, persisted diagnostics).
+    #
     # Provider selection is delegated to the factory: an invalid AI_PROVIDER
     # raises a clear error here rather than silently degrading. The mock provider
-    # takes the canned demo path; real providers (anthropic, gemini) run the four
+    # takes the canned demo path; real providers (anthropic, gemini) run the
     # agents through the shared `_send_messages` seam.
     provider = _active_provider()
 
@@ -417,8 +374,10 @@ def _run_four_agent_pipeline(
         detector_result = detector.detect(frame_paths, sport, original_call)
         perception = detector_result.perception
         detections = detector_result.detections
-        retrieval_query = _retrieval_agent(perception, sport)
-        retrieved_rules = _retrieve_rules(retrieval_query, perception, sport)
+        # Sprint 16A: no retrieval stage. The sport's rule corpus is small enough
+        # to inject in full, so both adjudicators see every rule and cite directly.
+        # An unregistered sport (GenericSport) yields an empty corpus.
+        rules = list(_rule_records(sport))
         # Feed detection-derived sport signals to adjudication only when present,
         # so enriched signals influence verdicts without changing the default path.
         sport_details_for_adjudication = sport_impl.sport_details(detections, perception)
@@ -429,7 +388,7 @@ def _run_four_agent_pipeline(
         # framing + temperature differ), so build it once (Sprint 6 perf).
         adjudicator_prompt = _build_adjudicator_prompt(
             perception=perception,
-            rules=retrieved_rules,
+            rules=rules,
             original_call=original_call,
             sport_details=sport_details_for_adjudication,
             tracked_evidence=tracked_evidence,
@@ -460,8 +419,7 @@ def _run_four_agent_pipeline(
         return {
             "provider_used": "anthropic_four_agent",
             "detector": detector.name,
-            "retrieval_query": retrieval_query,
-            "retrieved_rules": retrieved_rules,
+            "rules": rules,
             "perception": perception,
             "detections": detections,
             "tracked_evidence": tracked_evidence,
@@ -490,7 +448,7 @@ def _rule_by_id(rule_id: str | None, rules: list[RuleRecord]) -> RuleRecord:
     return rules[0] if rules else {
         "rule_id": "NO_RULE",
         "section_title": "No applicable rule found",
-        "text": "No specific rules were retrieved for this play.",
+        "text": "No specific rules were available for this play.",
         "page_number": 0,
         "call_type": "Unknown",
         "similarity_score": 0.0,
@@ -561,7 +519,6 @@ def _sport_details_payload(
 def _frontend_perception(
     perception: dict,
     provider_used: str,
-    retrieval_query: str,
     sport: str,
     detections: RawDetections | None = None,
 ) -> dict:
@@ -618,7 +575,6 @@ def _frontend_perception(
         "sport_details": _sport_details_payload(sport, perception, detections),
         "notes": (
             f"analysis_provider={provider_used}; "
-            f"retrieval_query={retrieval_query}; "
             f"contact_location={perception.get('contact_location', 'unclear')}; "
             f"ball_state={perception.get('ball_state', 'unclear')}; "
             f"court_geometry={perception.get('court_geometry', {})}; "
@@ -682,9 +638,8 @@ def _build_response(
 ) -> dict:
     perception = agent_result["perception"]
     detections = agent_result.get("detections")
-    retrieved_rules = agent_result["retrieved_rules"]
+    rules = agent_result["rules"]
     provider_used = agent_result["provider_used"]
-    retrieval_query = agent_result.get("retrieval_query", "")
     adjudicator_a_raw = agent_result["adjudicator_a"]
     adjudicator_b_raw = agent_result["adjudicator_b"]
     tracked_evidence = agent_result.get("tracked_evidence")
@@ -696,7 +651,7 @@ def _build_response(
     )
     primary_rule = _rule_by_id(
         adjudicator_a_raw.get("primary_rule_id") or adjudicator_b_raw.get("primary_rule_id"),
-        retrieved_rules,
+        rules,
     )
 
     adjudicator_a = _frontend_adjudicator(adjudicator_a_raw, primary_rule)
@@ -724,7 +679,7 @@ def _build_response(
                 "page_number": primary_rule.get("page_number", 1),
                 "similarity_score": 0.86,
             },
-            "perception": _frontend_perception(perception, provider_used, retrieval_query, sport, detections),
+            "perception": _frontend_perception(perception, provider_used, sport, detections),
             "adjudicator_a": adjudicator_a,
             "adjudicator_b": adjudicator_b,
             "reconciliation_note": reconciliation_note,
@@ -732,7 +687,6 @@ def _build_response(
         },
         "diagnostics": _diagnostics_payload(
             provider_used,
-            retrieval_query,
             detections,
             detector=agent_result.get("detector"),
             frames_analyzed=len(frame_paths),

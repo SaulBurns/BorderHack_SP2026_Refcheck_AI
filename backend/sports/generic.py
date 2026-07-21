@@ -28,19 +28,12 @@ class GenericSport(Sport):
         from services.analysis.prompts import _make_stub_perception_prompt
         return _make_stub_perception_prompt(self.name)
 
-    def retrieval_prompt(self) -> str:
-        from services.analysis.prompts import _make_stub_retrieval_prompt
-        return _make_stub_retrieval_prompt(self.name)
-
     def adjudicator_prompt(self) -> str:
         from services.analysis.prompts import _make_stub_adjudicator_prompt
         return _make_stub_adjudicator_prompt(self.name)
 
     def rule_records(self) -> dict:
         return {}
-
-    def boost_rule_score(self, rule_id: str, haystack: str) -> int:
-        return 0
 
     def detail_extractor(self) -> Any:
         from services.extractors.placeholders import EmptyDetailExtractor

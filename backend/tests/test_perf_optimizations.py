@@ -105,7 +105,7 @@ def test_reset_provider_cache_forces_new_instance(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Rule-records + ranking memoization
+# Rule-records caching
 # ---------------------------------------------------------------------------
 
 def test_rule_records_cached_identity():
@@ -113,14 +113,6 @@ def test_rule_records_cached_identity():
     b = ai._rule_records("basketball")
     assert a is b  # lru_cache returns the same object
     assert isinstance(a, tuple)
-
-
-def test_retrieve_rules_returns_list_and_is_memoized():
-    perception = {"event_type": "possible_blocking_foul", "summary": "drive to the rim"}
-    first = ai._retrieve_rules("restricted area secondary defender", perception, "basketball")
-    second = ai._retrieve_rules("restricted area secondary defender", perception, "basketball")
-    assert isinstance(first, list)
-    assert [r["rule_id"] for r in first] == [r["rule_id"] for r in second]
 
 
 # ---------------------------------------------------------------------------
@@ -164,8 +156,6 @@ def test_adjudicators_run_concurrently(monkeypatch):
 
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setattr(ai, "get_detector", lambda name=None: _FakeDetector())
-    monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
-    monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
     monkeypatch.setattr(ai, "_send_messages", send)
 
     result = ai._run_four_agent_pipeline(**_pipeline_kwargs())
@@ -189,8 +179,6 @@ def test_adjudicator_failure_falls_back_to_mock(monkeypatch):
 
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setattr(ai, "get_detector", lambda name=None: _FakeDetector())
-    monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
-    monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
     monkeypatch.setattr(ai, "_send_messages", send)
 
     result = ai._run_four_agent_pipeline(**_pipeline_kwargs())
@@ -207,8 +195,7 @@ def _count_pipeline_calls(monkeypatch):
     calls = {"n": 0}
     agent_result = {
         "provider_used": "anthropic_four_agent",
-        "retrieval_query": "q",
-        "retrieved_rules": [],
+        "rules": [],
         "perception": {"sport": "basketball", "event_type": "unclear", "perception_confidence": 0.8, "visual_quality": "clear"},
         "adjudicator_a": {"verdict": "fair_call", "confidence": 0.6, "primary_rule_id": None, "reasoning": "r", "flags": []},
         "adjudicator_b": {"verdict": "fair_call", "confidence": 0.6, "primary_rule_id": None, "reasoning": "r", "flags": []},

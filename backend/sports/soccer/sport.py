@@ -1,7 +1,7 @@
 """Soccer sport plugin (Sprint 10 — first new sport).
 
-Wires together everything soccer-specific the four-agent pipeline needs: the
-soccer prompts, the soccer rule-retrieval boosts, the ``SoccerDetailExtractor``,
+Wires together everything soccer-specific the three-agent pipeline needs: the
+soccer prompts, the soccer rule corpus, the ``SoccerDetailExtractor``,
 the soccer tracked-evidence layer, and the (currently absent) game-context
 provider. ``ai_analyzer`` reaches all of this through the ``Sport`` interface,
 never by checking ``sport == "soccer"``.
@@ -26,10 +26,6 @@ class SoccerSport(Sport):
         from sports.soccer.prompts import perception_prompt
         return perception_prompt()
 
-    def retrieval_prompt(self) -> str:
-        from sports.soccer.prompts import retrieval_prompt
-        return retrieval_prompt()
-
     def adjudicator_prompt(self) -> str:
         from sports.soccer.prompts import adjudicator_prompt
         return adjudicator_prompt()
@@ -37,10 +33,6 @@ class SoccerSport(Sport):
     def rule_records(self) -> dict:
         from rules.soccer_rules import SOCCER_RULES
         return SOCCER_RULES
-
-    def boost_rule_score(self, rule_id: str, haystack: str) -> int:
-        from sports.soccer.rules import boost_rule_score
-        return boost_rule_score(rule_id, haystack)
 
     def detail_extractor(self) -> Any:
         from sports.soccer.extractor import SoccerDetailExtractor

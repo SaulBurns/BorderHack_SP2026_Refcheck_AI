@@ -164,7 +164,7 @@ from services.ai_analyzer import _frontend_perception
 
 @pytest.mark.parametrize("perception", [_FULL_PERCEPTION, {}, {"summary": "x"}])
 def test_no_detection_extract_matches_frontend_perception(perception):
-    out = _frontend_perception(perception, "mock", "", "basketball")
+    out = _frontend_perception(perception, "mock", "basketball")
     expected = out["sport_details"]["basketball"]
     actual = BasketballDetailExtractor().extract(None, perception).model_dump()
     assert actual == expected
