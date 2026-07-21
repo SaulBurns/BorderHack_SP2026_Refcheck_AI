@@ -33,8 +33,10 @@ class MockProvider(AIProvider):
         user_content: MessageContent,
         temperature: float,
         max_tokens: int = 1200,
+        response_schema: dict | None = None,
     ) -> str:
-        # Deterministic, valid JSON so the shared parser succeeds if ever called.
+        # Deterministic, valid JSON so caller-side validation succeeds if ever
+        # called. `response_schema` is accepted for interface parity and ignored.
         return json.dumps(
             {
                 "verdict": "inconclusive",

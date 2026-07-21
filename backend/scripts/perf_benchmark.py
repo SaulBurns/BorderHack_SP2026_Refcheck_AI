@@ -77,7 +77,7 @@ class _BenchProvider(AIProvider):
     def supports_vision(self) -> bool:
         return True
 
-    def send_messages(self, *, system_prompt, user_content: MessageContent, temperature, max_tokens=1200) -> str:
+    def send_messages(self, *, system_prompt, user_content: MessageContent, temperature, max_tokens=1200, response_schema=None) -> str:
         with _BenchProvider._lock:
             _BenchProvider.calls += 1
             _BenchProvider._active += 1

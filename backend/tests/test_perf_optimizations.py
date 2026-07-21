@@ -143,7 +143,7 @@ def test_adjudicators_run_concurrently(monkeypatch):
         def detect(self, frames, sport, original_call):
             return DetectorResult(perception={"sport": sport, "event_type": "x"}, detections=None)
 
-    def send(*, system_prompt, user_content, temperature, max_tokens=1200):
+    def send(*, system_prompt, user_content, temperature, max_tokens=1200, response_schema=None):
         if "POSTURE" in system_prompt or "REASONING POSTURE" in system_prompt:
             # Only the two adjudicator calls carry a framing posture; block until
             # both are in-flight to prove they overlap.
@@ -172,7 +172,7 @@ def test_adjudicator_failure_falls_back_to_mock(monkeypatch):
         def detect(self, frames, sport, original_call):
             return DetectorResult(perception={"sport": sport, "event_type": "x"}, detections=None)
 
-    def send(*, system_prompt, user_content, temperature, max_tokens=1200):
+    def send(*, system_prompt, user_content, temperature, max_tokens=1200, response_schema=None):
         if "REASONING POSTURE" in system_prompt:
             raise RuntimeError("adjudicator boom")
         return '{"verdict":"fair_call","confidence":0.6}'

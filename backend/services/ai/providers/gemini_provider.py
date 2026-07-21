@@ -37,6 +37,7 @@ class GeminiProvider(AIProvider):
         user_content: MessageContent,
         temperature: float,
         max_tokens: int = 1200,
+        response_schema: dict | None = None,
     ) -> str:
         api_key = os.getenv(config.GEMINI_API_KEY_ENV)
         if not api_key:
@@ -55,6 +56,7 @@ class GeminiProvider(AIProvider):
                     temperature=temperature,
                     max_tokens=max_tokens,
                     json_mode=config.env_flag(config.GEMINI_JSON_MODE_ENV),
+                    response_schema=response_schema,
                 )
             ),
         )
@@ -69,22 +71,28 @@ class GeminiProvider(AIProvider):
         temperature: float,
         max_tokens: int,
         json_mode: bool = False,
+        response_schema: dict | None = None,
     ) -> dict:
         """Build the kwargs for `types.GenerateContentConfig` (pure — unit-testable
         without the SDK installed).
 
-        Sprint 14 — Gemini optimization: when `json_mode` is on, request
-        `application/json` responses so the reply is guaranteed parseable JSON
-        (removes prose/scratchpad parse failures). Off by default because JSON mode
-        precludes the private <thinking> scratchpad used for chain-of-thought
-        isolation, so the two are a deliberate trade-off.
+        Sprint 16B — structured output: when a `response_schema` is supplied the
+        reply is constrained to it via Gemini controlled generation —
+        `response_mime_type="application/json"` + `response_schema=<schema>` — so the
+        reply is guaranteed-parseable JSON matching the schema. This is Gemini's
+        native JSON mode and supersedes the legacy `json_mode` flag whenever the
+        pipeline validates. `json_mode` alone (no schema) still requests plain
+        `application/json` for backward compatibility.
         """
         kwargs = {
             "system_instruction": system_prompt,
             "temperature": temperature,
             "max_output_tokens": max_tokens,
         }
-        if json_mode:
+        if response_schema is not None:
+            kwargs["response_mime_type"] = "application/json"
+            kwargs["response_schema"] = response_schema
+        elif json_mode:
             kwargs["response_mime_type"] = "application/json"
         return kwargs
 

@@ -63,12 +63,20 @@ class AIProvider(ABC):
         user_content: MessageContent,
         temperature: float,
         max_tokens: int = 1200,
+        response_schema: dict | None = None,
     ) -> str:
         """Send one system+user turn and return the model's raw text reply.
 
         `user_content` is provider-neutral (see `MessageContent`). The returned
-        string is passed to the shared JSON extraction in `ai_analyzer`, so
-        providers must not parse or reshape it.
+        string is validated by the caller against a Pydantic model, so providers
+        must not parse or reshape it.
+
+        `response_schema` (Sprint 16B) is an optional JSON Schema describing the
+        expected reply. Providers use it to request provider-native structured
+        output — Gemini JSON mode + schema, Anthropic `output_config.format` when
+        enabled — so the reply is guaranteed-parseable JSON. Providers that cannot
+        honor it simply ignore it (the JSON-only prompt + caller-side validation +
+        retry still apply).
         """
 
     @abstractmethod

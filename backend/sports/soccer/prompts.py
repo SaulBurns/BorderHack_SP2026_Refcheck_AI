@@ -8,8 +8,8 @@ resolve to them.
 
 Design mirrors ``_BASKETBALL_*_PROMPT``: the perception agent describes, it does
 NOT rule; the adjudicator issues one of the three shared verdicts and must cite a
-``rule_id`` from the injected corpus. Output is strict JSON so ``_extract_json``
-parses it unchanged.
+``rule_id`` from the injected corpus. Output is strict JSON, validated against the
+``AdjudicatorResponse`` schema (Sprint 16B).
 """
 
 from __future__ import annotations

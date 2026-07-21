@@ -44,6 +44,7 @@ class AnthropicProvider(AIProvider):
         user_content: MessageContent,
         temperature: float,
         max_tokens: int = 1200,
+        response_schema: dict | None = None,
     ) -> str:
         api_key = os.getenv(config.ANTHROPIC_API_KEY_ENV)
         if not api_key:
@@ -57,6 +58,8 @@ class AnthropicProvider(AIProvider):
             temperature=temperature,
             max_tokens=max_tokens,
             prompt_cache=config.env_flag(config.ANTHROPIC_PROMPT_CACHE_ENV),
+            response_schema=response_schema,
+            structured_output=config.env_flag(config.ANTHROPIC_STRUCTURED_OUTPUT_ENV),
         )
         response = self._post_json(
             API_URL,
@@ -80,6 +83,8 @@ class AnthropicProvider(AIProvider):
         temperature: float,
         max_tokens: int,
         prompt_cache: bool = False,
+        response_schema: dict | None = None,
+        structured_output: bool = False,
     ) -> dict:
         """Build the Anthropic Messages request body (pure — unit-testable).
 
@@ -88,6 +93,13 @@ class AnthropicProvider(AIProvider):
         analyses) is sent as a cache-controlled block so Anthropic serves it from
         cache, cutting input cost and latency. Default off, so the request is
         byte-for-byte the legacy payload unless explicitly enabled.
+
+        Sprint 16B — structured output: when `structured_output` is on **and** a
+        `response_schema` is supplied, the reply is constrained to that JSON Schema
+        via `output_config.format` (native structured outputs). Default off because
+        the default model (claude-sonnet-4-5) does not guarantee support — the
+        pipeline then relies on the JSON-only prompt + caller-side validation +
+        retry ("robust JSON mode"). Both flags off = byte-for-byte the legacy body.
         """
         system: object = system_prompt
         if prompt_cache:
@@ -98,13 +110,22 @@ class AnthropicProvider(AIProvider):
                     "cache_control": {"type": "ephemeral"},
                 }
             ]
-        return {
+        payload: dict = {
             "model": model,
             "system": system,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "messages": [{"role": "user", "content": blocks}],
         }
+        if structured_output and response_schema is not None:
+            payload["output_config"] = {
+                "format": {
+                    "type": "json_schema",
+                    "name": response_schema.get("title", "response"),
+                    "schema": response_schema,
+                }
+            }
+        return payload
 
     # -- content translation ------------------------------------------------
 

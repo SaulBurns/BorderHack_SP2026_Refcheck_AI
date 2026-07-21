@@ -1,7 +1,6 @@
 import copy
 import json
 import os
-import re
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
@@ -26,6 +25,8 @@ from services.analysis.prompts import (
     _get_perception_prompt,
 )
 from services.analysis.rule_corpus import _rule_records, _rules_text
+from services.analysis.response_models import AdjudicatorResponse, PerceptionResponse
+from pydantic import BaseModel, ValidationError
 from services.detectors import RawDetections, get_detector
 from services.extractors import get_extractor
 from sports import get_sport
@@ -142,45 +143,44 @@ def _safe_float(value: Any, fallback: float) -> float:
     return max(0.0, min(1.0, number))
 
 
-# Private chain-of-thought the model may emit before its JSON. Stripped so the
-# reasoning stays isolated from the parsed verdict and can never break parsing
-# (e.g. an illustrative `{...}` inside the scratchpad). Case-insensitive, spans
-# newlines. Matches whether or not the closing tag is present (truncated output).
-_COT_BLOCK_RE = re.compile(
-    r"<(thinking|scratchpad|reasoning|analysis)>.*?(</\1>|$)",
-    re.IGNORECASE | re.DOTALL,
-)
-_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.IGNORECASE | re.DOTALL)
+class StructuredOutputError(RuntimeError):
+    """Raised when a model reply fails Pydantic validation after all retries.
 
-
-def _extract_json(text: str) -> dict:
-    """Shared JSON extraction for every provider's raw text reply (Sprint 14).
-
-    Chain-of-thought isolation: the adjudicator/perception prompts let the model
-    reason in a private `<thinking>`/`<scratchpad>` block before emitting its JSON.
-    We strip those blocks first, then prefer a fenced ```json block, then fall back
-    to the outermost braces — so private reasoning never leaks into or corrupts the
-    parsed result. Provider-agnostic: one parser for every provider's raw text.
+    Carries a descriptive message so the surrounding `_run_four_agent_pipeline`
+    `except` turns it into an informative `fallback_reason` (better diagnostics).
     """
-    cleaned = _COT_BLOCK_RE.sub("", text).strip()
 
+    def __init__(self, model_name: str, attempts: int, error: ValidationError | None):
+        super().__init__(
+            f"structured-output validation failed for {model_name} after "
+            f"{attempts} attempt(s): {error}"
+        )
+
+
+# Appended to the user turn on a retry so the model corrects a malformed reply.
+_RETRY_INSTRUCTION = (
+    "Your previous reply was not valid JSON matching the required schema. Reply "
+    "again with ONLY a single valid JSON object that conforms to the schema — no "
+    "prose, no markdown fences, no extra text."
+)
+
+
+def _structured_retries() -> int:
+    """How many times a validation failure is retried (env-tunable; default 1)."""
+    raw = os.getenv(config.STRUCTURED_OUTPUT_RETRIES_ENV)
+    if raw is None:
+        return config.DEFAULT_STRUCTURED_OUTPUT_RETRIES
     try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
+        return max(0, int(raw))
+    except ValueError:
+        return config.DEFAULT_STRUCTURED_OUTPUT_RETRIES
 
-    fenced = _JSON_FENCE_RE.search(cleaned)
-    if fenced:
-        try:
-            return json.loads(fenced.group(1))
-        except json.JSONDecodeError:
-            pass
 
-    start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        return json.loads(cleaned)  # re-raise the original-style JSONDecodeError
-    return json.loads(cleaned[start : end + 1])
+def _with_retry_nudge(user_content: MessageContent) -> MessageContent:
+    """Append the corrective instruction to a (string or multimodal) user turn."""
+    if isinstance(user_content, str):
+        return f"{user_content}\n\n{_RETRY_INSTRUCTION}"
+    return list(user_content) + [text_part(_RETRY_INSTRUCTION)]
 
 
 def _send_messages(
@@ -189,19 +189,63 @@ def _send_messages(
     user_content: MessageContent,
     temperature: float,
     max_tokens: int = 1200,
+    response_schema: dict | None = None,
 ) -> str:
     """Send one turn through the active AI provider and return its raw text.
 
-    The four-agent pipeline calls only this seam; which provider answers
-    (Anthropic, Gemini, mock) is resolved by the factory from AI_PROVIDER. No
-    provider-specific code lives here.
+    The pipeline calls only this seam; which provider answers (Anthropic, Gemini,
+    mock) is resolved by the factory from AI_PROVIDER. No provider-specific code
+    lives here. `response_schema` (Sprint 16B) is forwarded so the provider can
+    request native structured output.
     """
     return _active_provider().send_messages(
         system_prompt=system_prompt,
         user_content=user_content,
         temperature=temperature,
         max_tokens=max_tokens,
+        response_schema=response_schema,
     )
+
+
+def _send_validated(
+    *,
+    system_prompt: str,
+    user_content: MessageContent,
+    temperature: float,
+    model_cls: type[BaseModel],
+    max_tokens: int = 1200,
+    retries: int | None = None,
+) -> dict:
+    """Send one turn and validate the reply against `model_cls` (Sprint 16B).
+
+    The provider is asked for native structured output (via the model's JSON
+    Schema); the raw text is then validated with Pydantic's `model_validate_json`
+    — a single step that parses the JSON *and* checks the schema, so there is no
+    hand-rolled `json.loads` and no regex extraction anywhere. A `ValidationError`
+    (malformed JSON OR missing/typed-wrong fields) is retried up to `retries` times
+    with a corrective nudge appended to the user turn. **Only validation failures
+    retry** — provider/network errors propagate to the caller's `except` (the mock
+    fallback). Returns `model.model_dump()`, the same plain dict shape as before, so
+    every downstream reader and the `/api/analyze` response are unchanged.
+    """
+    schema = model_cls.model_json_schema()
+    attempts = (retries if retries is not None else _structured_retries()) + 1
+    content = user_content
+    last_error: ValidationError | None = None
+    for _ in range(attempts):
+        raw = _send_messages(
+            system_prompt=system_prompt,
+            user_content=content,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_schema=schema,
+        )
+        try:
+            return model_cls.model_validate_json(raw).model_dump()
+        except ValidationError as exc:
+            last_error = exc
+            content = _with_retry_nudge(user_content)
+    raise StructuredOutputError(model_cls.__name__, attempts, last_error)
 
 
 def _perception_agent(frame_paths: list[Path], original_call: str, sport: str) -> dict:
@@ -218,13 +262,12 @@ def _perception_agent(frame_paths: list[Path], original_call: str, sport: str) -
             f"{context}\n\nReturn your structured observation as JSON."
         )
     )
-    return _extract_json(
-        _send_messages(
-            system_prompt=_get_perception_prompt(sport),
-            user_content=user_blocks,
-            temperature=0,
-            max_tokens=1600,
-        )
+    return _send_validated(
+        system_prompt=_get_perception_prompt(sport),
+        user_content=user_blocks,
+        temperature=0,
+        model_cls=PerceptionResponse,
+        max_tokens=1600,
     )
 
 
@@ -280,21 +323,19 @@ PERCEPTION OUTPUT:
 SPORT RULEBOOK (the complete rule set for this sport — cite the rule_id that applies):
 {_rules_text(rules)}
 
-{_COT_ISOLATION_INSTRUCTION}
+{_FINAL_JSON_INSTRUCTION}
 """.strip()
 
 
-# Chain-of-thought isolation (Sprint 14): let the model reason step-by-step in a
-# private scratchpad, then commit only the final JSON. The scratchpad keeps the
-# reasoning from being cut short by the token budget or leaking into the parsed
-# verdict; `_extract_json` strips the <thinking> block before parsing. Shared by
-# both adjudicators (the user prompt is built once), so it is sport-agnostic.
-_COT_ISOLATION_INSTRUCTION = (
-    "First, think through the decision privately inside a single <thinking>...</thinking> "
-    "block: restate the decisive facts from the perception, map them to the applicable "
-    "rulebook rule, and weigh the uncertainty. Then, OUTSIDE the thinking block, output ONLY "
-    "the final verdict as a single JSON object. Do not repeat the reasoning outside the "
-    "JSON; the `reasoning` field should be a concise 2-4 sentence justification."
+# Sprint 16B — structured output: the reply is validated against `AdjudicatorResponse`
+# and constrained to JSON by the provider, so the model commits directly to the final
+# verdict object (the former `<thinking>` scratchpad is incompatible with JSON mode).
+# Step-by-step reasoning lives in the schema's `reasoning` field. Shared by both
+# adjudicators (the user prompt is built once), so it is sport-agnostic.
+_FINAL_JSON_INSTRUCTION = (
+    "Output ONLY the final verdict as a single JSON object matching the required schema "
+    "— no prose, no markdown fences. The `reasoning` field should be a concise 2-4 "
+    "sentence justification that maps the decisive perception facts to the cited rule."
 )
 
 
@@ -305,13 +346,12 @@ def _adjudicator_agent(
     temperature: float,
     sport: str,
 ) -> dict:
-    return _extract_json(
-        _send_messages(
-            system_prompt=f"{_get_adjudicator_prompt(sport)}\n\n{framing}",
-            user_content=user_prompt,
-            temperature=temperature,
-            max_tokens=1200,
-        )
+    return _send_validated(
+        system_prompt=f"{_get_adjudicator_prompt(sport)}\n\n{framing}",
+        user_content=user_prompt,
+        temperature=temperature,
+        model_cls=AdjudicatorResponse,
+        max_tokens=1200,
     )
 
 

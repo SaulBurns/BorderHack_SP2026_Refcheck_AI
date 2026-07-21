@@ -1,12 +1,14 @@
 """Sprint 14 — Model Improvements: unit tests for the AI-quality changes.
 
-Covers: chain-of-thought isolation in JSON extraction, confidence calibration,
-provider-optimization request builders (Claude prompt cache, Gemini JSON mode),
-and the new evaluation metrics (Brier, MCC) + provider recommendation.
+Covers: confidence calibration, provider-optimization request builders (Claude
+prompt cache, Gemini JSON mode), and the evaluation metrics (Brier, MCC) +
+provider recommendation.
 
-Note: the sport-agnostic retrieval query builder and field-weighted retrieval
-scoring these tests once covered were removed in Sprint 16A along with the
-retrieval stage (the full rule corpus is now injected into the adjudicators).
+Note: two blocks of tests were removed as their features were retired —
+(1) the sport-agnostic retrieval query builder + field-weighted retrieval scoring
+(Sprint 16A, retrieval stage removed), and (2) the `<thinking>` chain-of-thought
+isolation in `_extract_json` (Sprint 16B, regex extraction replaced by
+structured outputs + Pydantic validation — see `test_structured_outputs.py`).
 """
 
 import os
@@ -15,38 +17,6 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
-
-
-# ---------------------------------------------------------------------------
-# Chain-of-thought isolation (_extract_json)
-# ---------------------------------------------------------------------------
-
-from services.ai_analyzer import _extract_json
-
-
-def test_extract_plain_json():
-    assert _extract_json('{"verdict": "fair_call"}') == {"verdict": "fair_call"}
-
-def test_extract_strips_thinking_block_before_json():
-    raw = '<thinking>The defender was set {this is not json}</thinking>\n{"verdict": "bad_call", "confidence": 0.7}'
-    assert _extract_json(raw) == {"verdict": "bad_call", "confidence": 0.7}
-
-def test_extract_ignores_braces_inside_scratchpad():
-    # A brace-containing scratchpad must not corrupt parsing of the real JSON.
-    raw = '<scratchpad>consider {"verdict": "WRONG"}</scratchpad> {"verdict": "fair_call"}'
-    assert _extract_json(raw) == {"verdict": "fair_call"}
-
-def test_extract_prefers_fenced_json_block():
-    raw = "Sure!\n```json\n{\"verdict\": \"inconclusive\"}\n```\nHope that helps."
-    assert _extract_json(raw) == {"verdict": "inconclusive"}
-
-def test_extract_falls_back_to_outermost_braces():
-    raw = 'Here is the verdict: {"verdict": "bad_call"} — thanks'
-    assert _extract_json(raw) == {"verdict": "bad_call"}
-
-def test_extract_raises_on_no_json():
-    with pytest.raises(Exception):
-        _extract_json("no json here at all")
 
 
 # ---------------------------------------------------------------------------

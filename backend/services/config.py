@@ -37,6 +37,19 @@ GEMINI_MODEL_ENV = "GEMINI_MODEL"
 ANTHROPIC_PROMPT_CACHE_ENV = "ANTHROPIC_PROMPT_CACHE"
 GEMINI_JSON_MODE_ENV = "GEMINI_JSON_MODE"
 
+# Sprint 16B — structured outputs.
+#   ANTHROPIC_STRUCTURED_OUTPUT: opt in to Anthropic's native `output_config.format`
+#     structured output (default OFF). The default model (claude-sonnet-4-5) does not
+#     guarantee support, so by default Anthropic uses "robust JSON mode" instead —
+#     the JSON-only prompt + Pydantic validation + retry. Enable this only on a model
+#     that supports structured outputs (e.g. Opus 4.8 / Sonnet 5 / Haiku 4.5).
+#   STRUCTURED_OUTPUT_RETRIES: how many times a validation failure is retried before
+#     the pipeline degrades to the mock fallback (default 1).
+ANTHROPIC_STRUCTURED_OUTPUT_ENV = "ANTHROPIC_STRUCTURED_OUTPUT"
+STRUCTURED_OUTPUT_RETRIES_ENV = "STRUCTURED_OUTPUT_RETRIES"
+
+DEFAULT_STRUCTURED_OUTPUT_RETRIES = 1
+
 SUPABASE_URL_ENV = "SUPABASE_URL"
 SUPABASE_SERVICE_ROLE_KEY_ENV = "SUPABASE_SERVICE_ROLE_KEY"
 SUPABASE_CLIPS_BUCKET_ENV = "SUPABASE_CLIPS_BUCKET"
