@@ -37,6 +37,35 @@ GEMINI_MODEL_ENV = "GEMINI_MODEL"
 ANTHROPIC_PROMPT_CACHE_ENV = "ANTHROPIC_PROMPT_CACHE"
 GEMINI_JSON_MODE_ENV = "GEMINI_JSON_MODE"
 
+# Sprint 16B — structured outputs.
+#   ANTHROPIC_STRUCTURED_OUTPUT: opt in to Anthropic's native `output_config.format`
+#     structured output (default OFF). The default model (claude-sonnet-4-5) does not
+#     guarantee support, so by default Anthropic uses "robust JSON mode" instead —
+#     the JSON-only prompt + Pydantic validation + retry. Enable this only on a model
+#     that supports structured outputs (e.g. Opus 4.8 / Sonnet 5 / Haiku 4.5).
+#   STRUCTURED_OUTPUT_RETRIES: how many times a validation failure is retried before
+#     the pipeline degrades to the mock fallback (default 1).
+ANTHROPIC_STRUCTURED_OUTPUT_ENV = "ANTHROPIC_STRUCTURED_OUTPUT"
+STRUCTURED_OUTPUT_RETRIES_ENV = "STRUCTURED_OUTPUT_RETRIES"
+
+DEFAULT_STRUCTURED_OUTPUT_RETRIES = 1
+
+# Sprint 16D — provider-communication reliability. Transport-level retry with
+# exponential backoff for *transient* provider failures (429/5xx/timeout/dropped
+# connection); auth, bad-request, and validation failures are never retried.
+#   PROVIDER_MAX_RETRIES: retries after the first attempt (2 → 3 total attempts).
+#   PROVIDER_BACKOFF_BASE_SECONDS / PROVIDER_BACKOFF_MAX_SECONDS: expo backoff bounds.
+#   PROVIDER_TIMEOUT_SECONDS: per-request socket timeout.
+PROVIDER_MAX_RETRIES_ENV = "PROVIDER_MAX_RETRIES"
+PROVIDER_BACKOFF_BASE_SECONDS_ENV = "PROVIDER_BACKOFF_BASE_SECONDS"
+PROVIDER_BACKOFF_MAX_SECONDS_ENV = "PROVIDER_BACKOFF_MAX_SECONDS"
+PROVIDER_TIMEOUT_SECONDS_ENV = "PROVIDER_TIMEOUT_SECONDS"
+
+DEFAULT_PROVIDER_MAX_RETRIES = 2
+DEFAULT_PROVIDER_BACKOFF_BASE_SECONDS = 0.5
+DEFAULT_PROVIDER_BACKOFF_MAX_SECONDS = 8.0
+DEFAULT_PROVIDER_TIMEOUT_SECONDS = 90.0
+
 SUPABASE_URL_ENV = "SUPABASE_URL"
 SUPABASE_SERVICE_ROLE_KEY_ENV = "SUPABASE_SERVICE_ROLE_KEY"
 SUPABASE_CLIPS_BUCKET_ENV = "SUPABASE_CLIPS_BUCKET"
@@ -79,3 +108,25 @@ def env_flag(name: str, default: bool = False) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in _TRUTHY
+
+
+def env_int(name: str, default: int) -> int:
+    """Interpret an env var as an int, falling back to `default` on unset/invalid."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return default
+
+
+def env_float(name: str, default: float) -> float:
+    """Interpret an env var as a float, falling back to `default` on unset/invalid."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        return default

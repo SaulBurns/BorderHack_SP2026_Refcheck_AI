@@ -101,7 +101,6 @@ def test_each_registered_sport_returns_a_rule_records_dict():
 
 from services.ai_analyzer import (
     _get_perception_prompt,
-    _get_retrieval_prompt,
     _get_adjudicator_prompt,
 )
 
@@ -121,25 +120,6 @@ def test_perception_prompt_returns_nonempty_string_for_all_sports():
     for sport in ("basketball", "hockey", "soccer", "lacrosse"):
         result = _get_perception_prompt(sport)
         assert isinstance(result, str) and len(result) > 100, f"empty prompt for {sport}"
-
-
-# --- _get_retrieval_prompt ---
-
-def test_retrieval_prompt_basketball_mentions_basketball_specific_terms():
-    prompt = _get_retrieval_prompt("basketball")
-    assert any(
-        term in prompt.lower()
-        for term in ("pivot foot", "restricted area", "airborne shooter")
-    )
-
-def test_retrieval_prompt_hockey_does_not_mention_pivot_foot():
-    prompt = _get_retrieval_prompt("hockey")
-    assert "pivot foot" not in prompt.lower()
-
-def test_retrieval_prompt_returns_nonempty_string_for_all_sports():
-    for sport in ("basketball", "hockey", "soccer", "lacrosse"):
-        result = _get_retrieval_prompt(sport)
-        assert isinstance(result, str) and len(result) > 50, f"empty prompt for {sport}"
 
 
 # --- _get_adjudicator_prompt ---
@@ -162,15 +142,7 @@ def test_adjudicator_prompt_returns_nonempty_string_for_all_sports():
 # Rule routing
 # ---------------------------------------------------------------------------
 
-from services.ai_analyzer import _rule_records, _retrieve_rules
-
-_MINIMAL_PERCEPTION: dict = {
-    "event_type": "unclear",
-    "summary": "a play",
-    "offensive_control_status": "unclear",
-    "defender_status": {},
-    "court_geometry": {},
-}
+from services.ai_analyzer import _rule_records
 
 
 def test_rule_records_basketball_returns_nine_rules():
@@ -199,49 +171,6 @@ def test_rule_records_unregistered_sport_returns_empty_list():
     assert _rule_records("curling") == ()
 
 
-def test_retrieve_rules_basketball_returns_block_charge_first_for_blocking_query():
-    perception = {
-        **_MINIMAL_PERCEPTION,
-        "event_type": "possible_blocking_foul",
-        "summary": "defender slides into path of ball handler",
-        "defender_status": {
-            "primary_or_secondary": "primary",
-            "legal_guarding_position": "not_established",
-            "moving_direction": "lateral",
-            "inside_restricted_area": False,
-        },
-        "court_geometry": {"key_zone": "paint_lane"},
-    }
-    rules = _retrieve_rules("blocking foul legal guarding position established", perception, "basketball")
-    assert 1 <= len(rules) <= 5
-    assert rules[0]["rule_id"] == "BLOCK_CHARGE"
-
-def test_retrieve_rules_hockey_ranks_slashing_for_slashing_query():
-    rules = _retrieve_rules("slashing swing stick chop hands", _MINIMAL_PERCEPTION, "hockey")
-    assert 1 <= len(rules) <= 5
-    assert rules[0]["rule_id"] == "SLASHING"
-
-def test_retrieve_rules_lacrosse_ranks_crease_for_crease_query():
-    rules = _retrieve_rules("crease violation dive goal crease goalie", _MINIMAL_PERCEPTION, "lacrosse")
-    assert 1 <= len(rules) <= 5
-    assert rules[0]["rule_id"] == "CREASE_VIOLATION"
-
-def test_retrieve_rules_unregistered_sport_returns_empty_list():
-    rules = _retrieve_rules("curling hammer takeout", _MINIMAL_PERCEPTION, "curling")
-    assert rules == []
-
-def test_retrieve_rules_basketball_preserves_existing_behavior():
-    perception = {
-        **_MINIMAL_PERCEPTION,
-        "event_type": "possible_blocking_foul",
-        "defender_status": {"moving_direction": "lateral", "inside_restricted_area": False},
-        "court_geometry": {"key_zone": "restricted_area"},
-    }
-    rules = _retrieve_rules("blocking charge restricted area secondary defender", perception, "basketball")
-    assert len(rules) > 0
-    assert rules[0]["rule_id"] in ("BLOCK_CHARGE", "RESTRICTED_AREA")
-
-
 # ---------------------------------------------------------------------------
 # Output sport field correctness
 # ---------------------------------------------------------------------------
@@ -267,11 +196,11 @@ def test_mock_ai_result_sport_field_matches_soccer():
 
 
 def test_frontend_perception_sport_field_hockey():
-    result = _frontend_perception({"event_type": "unclear", "summary": "test"}, "mock", "", "hockey")
+    result = _frontend_perception({"event_type": "unclear", "summary": "test"}, "mock", "hockey")
     assert result["sport"] == "hockey"
 
 def test_frontend_perception_sport_field_basketball():
-    result = _frontend_perception({"event_type": "unclear", "summary": "test"}, "mock", "", "basketball")
+    result = _frontend_perception({"event_type": "unclear", "summary": "test"}, "mock", "basketball")
     assert result["sport"] == "basketball"
 
 

@@ -1,8 +1,8 @@
 """Sport plugin interface (Sprint 9 — multi-sport architecture).
 
-A `Sport` owns everything the four-agent pipeline needs to know that is
-sport-specific: the perception/retrieval/adjudication prompts, rule-retrieval
-boosts, sport-details extraction, tracking-evidence derivation, and game-context
+A `Sport` owns everything the three-agent pipeline needs to know that is
+sport-specific: the perception/adjudication prompts, the rule corpus,
+sport-details extraction, tracking-evidence derivation, and game-context
 metadata. `ai_analyzer` stays sport-agnostic — it resolves a sport via
 `SportRegistry.get(sport)` and delegates, so adding a new sport never touches
 core pipeline code.
@@ -22,7 +22,7 @@ from typing import Any
 class Sport(ABC):
     """One sport's behavior, plugged into the pipeline via the SportRegistry.
 
-    A ``Sport`` is fully self-contained: it owns its prompts, rule corpus + boosts,
+    A ``Sport`` is fully self-contained: it owns its prompts, rule corpus,
     detail extraction, detail schema, tracking evidence, and game context. The
     generic pipeline and lookup functions (`get_rules_for_sport`, `_get_*_prompt`,
     `get_extractor`, `get_sport_details_model`) resolve a plugin with
@@ -44,29 +44,19 @@ class Sport(ABC):
         """System prompt for the perception agent."""
 
     @abstractmethod
-    def retrieval_prompt(self) -> str:
-        """System prompt for the retrieval-query agent."""
-
-    @abstractmethod
     def adjudicator_prompt(self) -> str:
         """System prompt for both adjudicators (framing is appended per-agent)."""
 
-    # -- rule corpus + retrieval --------------------------------------------
+    # -- rule corpus --------------------------------------------------------
 
     @abstractmethod
     def rule_records(self) -> dict:
         """The sport's rulebook corpus.
 
         A mapping of ``rule_key -> {"call_type", "rule_applied", "summary", ...}``.
-        Return ``{}`` for a sport with no authored rules (GenericSport fallback).
-        """
-
-    @abstractmethod
-    def boost_rule_score(self, rule_id: str, haystack: str) -> int:
-        """Sport-specific keyword boost for a candidate rule during ranking.
-
-        Returns 0 for sports without tuned retrieval, leaving the generic
-        keyword score untouched.
+        The pipeline injects this corpus in full into the adjudicators (Sprint 16A
+        removed the retrieval stage). Return ``{}`` for a sport with no authored
+        rules (GenericSport fallback).
         """
 
     # -- sport-details extraction + schema ----------------------------------

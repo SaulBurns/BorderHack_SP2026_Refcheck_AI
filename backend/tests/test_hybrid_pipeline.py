@@ -128,8 +128,6 @@ def test_pipeline_does_not_fall_back_to_mock_when_yolo_fails(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setattr(ai, "get_detector",
                         lambda name=None: HybridDetector(claude_detector=_FakeClaude(), yolo_detector=_FailingYolo()))
-    monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
-    monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
     monkeypatch.setattr(ai, "_build_adjudicator_prompt",
                         lambda **k: captured.setdefault("te", k.get("tracked_evidence")) or "PROMPT")
     monkeypatch.setattr(ai, "_adjudicator_agent",
@@ -169,8 +167,6 @@ def test_tracked_evidence_reaches_both_adjudicators(monkeypatch):
 
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setattr(ai, "get_detector", lambda name=None: _FakeDetector())
-    monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
-    monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
     monkeypatch.setattr(ai, "_build_adjudicator_prompt", fake_build)
     monkeypatch.setattr(ai, "_adjudicator_agent", fake_adjudicator)
     _run_four_agent_pipeline(
@@ -190,8 +186,7 @@ def _agent_result(tracked_evidence=None, detections=None):
     result = {
         "provider_used": "anthropic_four_agent",
         "detector": "hybrid",
-        "retrieval_query": "q",
-        "retrieved_rules": [],
+        "rules": [],
         "perception": {"sport": "basketball", "event_type": "x", "perception_confidence": 0.8, "visual_quality": "clear"},
         "adjudicator_a": {"verdict": "fair_call", "confidence": 0.7, "primary_rule_id": None, "reasoning": "r", "flags": []},
         "adjudicator_b": {"verdict": "fair_call", "confidence": 0.7, "primary_rule_id": None, "reasoning": "r", "flags": []},
@@ -223,7 +218,7 @@ def test_diagnostics_show_yolo_influence():
                  [_obj("person", 0.55, 0.5, 0.3, 0.8, track_id=1), _obj("sports ball", 0.55, 0.7, 0.05, 0.05),
                   _obj("person", 0.8, 0.5, 0.2, 0.6, track_id=2)])
     evidence = summarize_tracked_evidence(dets)
-    diag = _diagnostics_payload("anthropic_four_agent", "q", dets, detector="hybrid",
+    diag = _diagnostics_payload("anthropic_four_agent", dets, detector="hybrid",
                                 frames_analyzed=2, tracked_evidence=evidence)
     assert diag["yolo_influenced"] is True
     assert diag["tracked_evidence_present"] is True
@@ -234,7 +229,7 @@ def test_diagnostics_show_yolo_influence():
     assert diag["influenced_reconciliation"] is True
 
 def test_diagnostics_no_yolo_influence_for_claude_vision():
-    diag = _diagnostics_payload("anthropic_four_agent", "q", None, detector="claude_vision", frames_analyzed=2)
+    diag = _diagnostics_payload("anthropic_four_agent", None, detector="claude_vision", frames_analyzed=2)
     assert diag["yolo_influenced"] is False
     assert diag["tracked_evidence_present"] is False
     assert diag["tracking_confidence"] is None

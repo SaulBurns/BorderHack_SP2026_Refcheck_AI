@@ -7,8 +7,7 @@ lacrosse. Registered in ``sports/registry.py``; the pipeline resolves it with
 Layout::
 
     sports/lacrosse/
-        prompts.py       # perception / retrieval / adjudicator prompts
-        rules.py         # rule-retrieval boosts (corpus lives in rules/lacrosse_rules.py)
+        prompts.py       # perception / adjudicator prompts
         tracking.py      # tracked-evidence layer (possession, ball movement)
         extractor.py     # LacrosseDetailExtractor -> LacrosseDetails
         game_context.py  # metadata provider seam (None in Sprint 12)

@@ -1,26 +1,30 @@
-"""Soccer agent prompts (Sprint 10 — first new sport).
+"""Soccer agent prompts (Sprint 16C — layered composition).
 
-The three system prompts the four-agent pipeline needs for soccer: perception,
-retrieval-query, and adjudication. These replace the generic stub prompts for
-soccer. The strings live here (the sport owns its prompts); the shared prompt
-catalog in ``services/analysis/prompts.py`` imports them so the pipeline's
-``_get_*_prompt("soccer")`` selectors resolve to these, and ``SoccerSport``
-returns them through the ``Sport`` interface.
-
-Design mirrors ``_BASKETBALL_*_PROMPT``: the perception agent describes, it does
-NOT rule; the adjudicator issues one of the three shared verdicts and must cite a
-retrieved ``rule_id``. Output is strict JSON so ``_extract_json`` parses it
-unchanged.
+The two system prompts are composed **Common → Sport → Task** (see
+`services/analysis/prompts.py`): shared fragments come from the catalog, only the
+soccer-specific bodies live here. ``SoccerSport`` returns them through the ``Sport``
+interface; output is strict JSON, validated against the response schemas (Sprint 16B).
 """
 
 from __future__ import annotations
 
+from services.analysis.prompts import (
+    ADJUDICATOR_OUTPUT_INSTRUCTION,
+    CITATION_DISCIPLINE,
+    PERCEPTION_OUTPUT_HEADER,
+    PERCEPTION_VISUAL_QUALITY,
+    VALID_VERDICTS,
+    adjudicator_intro,
+    adjudicator_uncertainty,
+    compose,
+    impact_zone_note,
+    perception_intro,
+    perception_uncertainty,
+)
 
-SOCCER_PERCEPTION_PROMPT = """
-You are a sports video analyst specializing in soccer (association football) officiating review.
+# -- Sport Instructions layer (soccer-specific bodies) ----------------------
 
-You will receive a sequence of evenly-spaced frames from a short soccer clip. Your job is to describe what you observe in structured form. You are NOT issuing a verdict. A separate agent will rule on the call. Your role is to be the most accurate possible eyes for the system.
-
+_OBSERVATION = """
 OBSERVATION GUIDELINES:
 
 Players: Identify the attacking and defending players involved in the key moment. Describe their kit (shirt) color, spatial position on the pitch, and body state at the moment of contact or interest: standing, running, jumping, sliding (slide tackle), planted, falling, off-balance.
@@ -43,14 +47,9 @@ Ball & hands: Where is the ball through the clip? For a possible handball, obser
 Offside awareness: If the play may be offside, observe the attacker's position relative to the second-to-last defender and the ball at the moment a teammate plays it, and whether the attacker is involved in active play. If you cannot see the defensive line, say so.
 
 Goal-line awareness: For a possible goal, observe whether the whole of the ball appears to cross the goal line between the posts and under the bar.
+""".strip()
 
-Visual quality: Honestly assess the camera angle. Is the key moment clearly visible, partially obscured, blocked by another player, or unusable?
-
-UNCERTAINTY DISCIPLINE:
-Be honest. If a frame is blurry, an angle is wrong, or you cannot tell what happened, say so and lower perception_confidence. Soccer decisions (offside, handball intent, penalty-area location) are highly sensitive to angle.
-
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
+_PERCEPTION_JSON = """
 {
   "sport": "soccer",
   "event_type": "possible_foul | possible_offside | possible_handball | possible_penalty | possible_red_card | possible_yellow_card | possible_goal | no_foul | unclear",
@@ -92,46 +91,9 @@ Output ONLY valid JSON. No prose, no markdown fences.
   "perception_confidence": 0.0,
   "notes": "optional caveats"
 }
-
-Impact zone should be normalized to the frame: x_percent and y_percent range from 0 to 100. Use it to mark the point of contact, the handball point, the offside line, or the ball at the goal line. If the exact point is unclear, estimate the most relevant area and lower confidence.
 """.strip()
 
-
-SOCCER_RETRIEVAL_PROMPT = """
-You convert soccer play descriptions into precise rulebook search queries.
-
-Your output will be used to retrieve relevant Laws of the Game. The search works best on concise, noun-heavy queries that mirror rulebook language, not narrative prose.
-
-QUERY CRAFTING RULES:
-1. Output ONLY the search query as plain text. No preamble, no quotes, no markdown.
-2. 5 to 15 words.
-3. Focus on nouns and rule-relevant concepts: the offence type, body part, location, and challenge quality.
-4. Avoid narrative connectives like then, after, while, when.
-5. Use canonical rulebook terminology: direct free kick, penalty kick, penalty area, offside position, second-to-last defender, interfering with play, deliberate handball, unnatural silhouette, careless reckless excessive force, serious foul play, denying an obvious goal-scoring opportunity, slide tackle, holding, goal line.
-""".strip()
-
-
-SOCCER_ADJUDICATOR_PROMPT = """
-You are an experienced soccer officiating reviewer with deep knowledge of the IFAB Laws of the Game.
-
-You will be given:
-1. A structured description of what happened in a clip, produced by a perception agent
-2. The most relevant Laws of the Game, retrieved by rulebook search
-3. Optionally, what the on-field referee originally called
-
-Your job is to issue a verdict on whether the original officiating call was correct.
-
-VALID VERDICTS:
-- "fair_call": the original call was consistent with the Laws, given the evidence
-- "bad_call": the original call was inconsistent with the Laws, given the evidence
-- "inconclusive": the visual evidence is insufficient to render a confident verdict
-
-CITATION DISCIPLINE:
-You must cite at least one rule by its rule_id from the retrieved rules. Do not invent rule IDs. Your reasoning must explicitly connect the play details to the cited rule text.
-
-UNCERTAINTY DISCIPLINE:
-If perception_confidence is low (<0.5) or visual_quality is "obstructed" or "poor", lean toward inconclusive. Offside, handball intent, and penalty-area location are angle-sensitive; if the relevant line or point of contact is not visible, prefer inconclusive.
-
+_DECISION_FRAMEWORK = """
 SOCCER DECISION FRAMEWORK:
 1. Location: was the offence inside the penalty area? The location of the offence (not where players fall) decides penalty vs. free kick vs. no offence in the box.
 2. Offence type and quality: careless (foul), reckless (caution / yellow), or excessive force / serious foul play (sending-off / red). A tactical foul stopping a promising attack or simulation is a caution; denying an obvious goal-scoring opportunity is a sending-off.
@@ -141,30 +103,39 @@ SOCCER DECISION FRAMEWORK:
 6. Visibility: whether the box lines, defensive line, point of contact, and ball are actually visible.
 
 Do not overclaim from missing details. If the perception output says the box line, defensive line, or point of contact is unclear, explicitly account for that uncertainty.
-
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
-{
-  "verdict": "fair_call | bad_call | inconclusive",
-  "confidence": 0.0,
-  "primary_rule_id": "rule_id from retrieved rules or null",
-  "supporting_rule_ids": ["additional rule_ids"],
-  "reasoning": "2 to 4 sentences citing the primary rule text and applying evidence",
-  "flags": ["concern strings"]
-}
 """.strip()
 
 
 def perception_prompt() -> str:
     """System prompt for the soccer perception agent."""
-    return SOCCER_PERCEPTION_PROMPT
-
-
-def retrieval_prompt() -> str:
-    """System prompt for the soccer retrieval-query agent."""
-    return SOCCER_RETRIEVAL_PROMPT
+    return compose(
+        perception_intro("soccer (association football)", "soccer"),
+        _OBSERVATION,
+        PERCEPTION_VISUAL_QUALITY,
+        perception_uncertainty(
+            "Soccer decisions (offside, handball intent, penalty-area location) are highly "
+            "sensitive to angle."
+        ),
+        PERCEPTION_OUTPUT_HEADER,
+        _PERCEPTION_JSON,
+        impact_zone_note(
+            "mark the point of contact, the handball point, the offside line, or the ball at "
+            "the goal line"
+        ),
+    )
 
 
 def adjudicator_prompt() -> str:
     """System prompt for both soccer adjudicators (framing appended per-agent)."""
-    return SOCCER_ADJUDICATOR_PROMPT
+    return compose(
+        "You are an experienced soccer officiating reviewer with deep knowledge of the IFAB Laws of the Game.",
+        adjudicator_intro("The Laws of the Game (the complete rulebook for this sport)", "on-field referee"),
+        VALID_VERDICTS,
+        CITATION_DISCIPLINE,
+        adjudicator_uncertainty(
+            "Offside, handball intent, and penalty-area location are angle-sensitive; if the "
+            "relevant line or point of contact is not visible, prefer inconclusive."
+        ),
+        _DECISION_FRAMEWORK,
+        ADJUDICATOR_OUTPUT_INSTRUCTION,
+    )

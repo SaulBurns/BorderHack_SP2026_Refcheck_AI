@@ -79,7 +79,7 @@ _CLAUDE_PERCEPTION = {  # full Claude perception
 # ---------------------------------------------------------------------------
 
 def test_claude_vision_path_no_detections_preserves_behavior():
-    out = _frontend_perception(_CLAUDE_PERCEPTION, "anthropic_four_agent", "q", "basketball")  # detections=None
+    out = _frontend_perception(_CLAUDE_PERCEPTION, "anthropic_four_agent", "basketball")  # detections=None
     sd = out["sport_details"]["basketball"]
     # sport_details mirrors perception (no detection override).
     assert sd["offensive_control_status"] == "airborne_shooter"
@@ -89,18 +89,18 @@ def test_claude_vision_path_no_detections_preserves_behavior():
     assert out["defender_status"]["legal_guarding_position"] == "not_established"
 
 def test_yolov8_path_derives_offensive_control_from_detections():
-    out = _frontend_perception(_NEUTRAL_PERCEPTION, "anthropic_four_agent", "q", "basketball", _controlled_detections())
+    out = _frontend_perception(_NEUTRAL_PERCEPTION, "anthropic_four_agent", "basketball", _controlled_detections())
     sd = out["sport_details"]["basketball"]
     assert sd["offensive_control_status"] == "gathered"  # derived from detections
     # legacy top-level offensive_control_status reflects the (neutral) perception, unchanged.
     assert out["offensive_control_status"] == "unclear"
 
 def test_yolov8_path_loose_ball():
-    out = _frontend_perception(_NEUTRAL_PERCEPTION, "x", "", "basketball", _loose_detections())
+    out = _frontend_perception(_NEUTRAL_PERCEPTION, "x", "basketball", _loose_detections())
     assert out["sport_details"]["basketball"]["offensive_control_status"] == "loose_ball"
 
 def test_hybrid_path_enriches_offensive_keeps_claude_geometry():
-    out = _frontend_perception(_CLAUDE_PERCEPTION, "x", "", "basketball", _controlled_detections())
+    out = _frontend_perception(_CLAUDE_PERCEPTION, "x", "basketball", _controlled_detections())
     sd = out["sport_details"]["basketball"]
     assert sd["offensive_control_status"] == "gathered"  # derived (overrides claude's value)
     assert sd["defender_status"]["legal_guarding_position"] == "not_established"  # from claude
@@ -114,8 +114,8 @@ def test_hybrid_path_enriches_offensive_keeps_claude_geometry():
 # ---------------------------------------------------------------------------
 
 def test_detection_present_vs_absent_legacy_identical():
-    absent = _frontend_perception(_CLAUDE_PERCEPTION, "x", "", "basketball")
-    present = _frontend_perception(_CLAUDE_PERCEPTION, "x", "", "basketball", _controlled_detections())
+    absent = _frontend_perception(_CLAUDE_PERCEPTION, "x", "basketball")
+    present = _frontend_perception(_CLAUDE_PERCEPTION, "x", "basketball", _controlled_detections())
 
     # sport_details diverges (detections enrich it)...
     assert absent["sport_details"]["basketball"]["offensive_control_status"] == "airborne_shooter"
@@ -129,8 +129,8 @@ def test_detection_present_vs_absent_legacy_identical():
 
 def test_non_basketball_sport_details_unaffected_by_detections():
     # Hockey extractor ignores detections; sport_details stays the placeholder.
-    absent = _frontend_perception({"sport": "hockey"}, "x", "", "hockey")
-    present = _frontend_perception({"sport": "hockey"}, "x", "", "hockey", _controlled_detections())
+    absent = _frontend_perception({"sport": "hockey"}, "x", "hockey")
+    present = _frontend_perception({"sport": "hockey"}, "x", "hockey", _controlled_detections())
     assert absent["sport_details"] == present["sport_details"]
     assert "hockey" in present["sport_details"]
 
@@ -142,8 +142,7 @@ def test_non_basketball_sport_details_unaffected_by_detections():
 def _agent_result(perception, detections=None):
     result = {
         "provider_used": "anthropic_four_agent",
-        "retrieval_query": "q",
-        "retrieved_rules": [],
+        "rules": [],
         "perception": perception,
         "adjudicator_a": {"verdict": "inconclusive", "confidence": 0.5, "primary_rule_id": None, "reasoning": "r", "flags": []},
         "adjudicator_b": {"verdict": "inconclusive", "confidence": 0.5, "primary_rule_id": None, "reasoning": "r", "flags": []},
@@ -191,8 +190,6 @@ def test_pipeline_threads_detections_into_agent_result(monkeypatch):
 
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setattr(ai, "get_detector", lambda name=None: _FakeDetector())
-    monkeypatch.setattr(ai, "_retrieval_agent", lambda perception, sport: "q")
-    monkeypatch.setattr(ai, "_retrieve_rules", lambda *a, **k: [])
     monkeypatch.setattr(ai, "_adjudicator_agent", lambda **k: {"verdict": "inconclusive", "confidence": 0.5})
 
     result = _run_four_agent_pipeline(

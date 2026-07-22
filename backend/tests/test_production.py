@@ -163,7 +163,7 @@ def test_readiness_reports_checks(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "mock")
     report = health.readiness()
     assert report["status"] in {"ready", "degraded"}
-    assert set(report["checks"]) == {"provider", "ffmpeg", "upload_dir"}
+    assert set(report["checks"]) == {"provider", "provider_comms", "ffmpeg", "upload_dir"}
     # Mock provider needs no key -> provider check passes.
     assert report["checks"]["provider"]["ok"] is True
 

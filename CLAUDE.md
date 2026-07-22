@@ -50,11 +50,16 @@ NEXT_PUBLIC_API_BASE=http://localhost:8000
 
 ## Architecture
 
-This is a multi-agent AI pipeline for reviewing sports officiating calls. A user uploads a video clip; the backend runs a 4-agent pipeline and returns a structured verdict; the frontend displays it.
+This is a multi-agent AI pipeline for reviewing sports officiating calls. A user uploads a video clip; the backend runs a **3-agent pipeline** (perception → two adjudicators) and returns a structured verdict; the frontend displays it.
 
 > Note: there is **no `backend/app/` package** and **no FAISS/`sentence-transformers`**. Earlier
 > revisions of this doc described an aspirational `app/agents/…` + FAISS design that this backend
-> never shipped. The real code lives under `backend/services/` and retrieval is keyword-based.
+> never shipped. The real code lives under `backend/services/`.
+>
+> **Sprint 16A removed the Retrieval stage.** The former pipeline was Perception → Retrieval
+> (an LLM query + keyword ranker) → Adjudicators. The rule corpora are tiny (6-9 rules per sport),
+> so the **complete** corpus is now injected directly into both adjudicator prompts — no retrieval
+> agent, no keyword ranking, no `Sport.retrieval_prompt()`/`boost_rule_score()`.
 
 ### Agent pipeline (`backend/services/`)
 
@@ -66,16 +71,16 @@ analyze_clip(file, sport, ..., video_metadata)      services/ai_analyzer.py
   ├─ _extract_frames()          services/analysis/frames.py
   │    ffprobe duration + ffmpeg → 10 evenly-spaced JPEGs (clip_id-cached on disk)
   │
-  └─ _run_four_agent_pipeline()                       services/ai_analyzer.py
+  └─ _run_four_agent_pipeline()  [3 agents; name kept as a seam]  services/ai_analyzer.py
        ├─ detector.detect()     services/detectors/  (default claude_vision → _perception_agent)
        │    Claude vision over the frames → perception dict (no verdict)
-       ├─ _retrieval_agent()    Claude turns perception into a rulebook query
-       ├─ _retrieve_rules()     services/analysis/retrieval.py
-       │    field-weighted, stopword-filtered keyword scoring over a sport-agnostic
-       │    haystack (NO embeddings/FAISS) → top 5 (Sprint 14)
+       ├─ _rule_records(sport)   services/analysis/rule_corpus.py
+       │    the sport's COMPLETE rule corpus (6-9 rules), injected whole into both
+       │    adjudicator prompts — NO retrieval agent / ranking (Sprint 16A)
        ├─ adjudicators A ∥ B    conservative (temp 0.2) ∥ skeptical (temp 0.7),
        │    run concurrently on a ThreadPoolExecutor; identical prompt built once;
-       │    reason in a private <thinking> scratchpad, then emit only JSON (Sprint 14)
+       │    emit schema-validated JSON (Sprint 16B structured outputs; retried on
+       │    validation failure, then mock fallback)
        └─ (mock/degraded runs return services/analysis/mock_result.py)
   │
   └─ _build_response() → _reconcile()                 services/ai_analyzer.py
@@ -91,25 +96,24 @@ Sports are **fully self-contained plugins**. Each sport implements the `Sport` i
 ```
 sports/
   base.py         # Sport ABC — the full contract each plugin implements:
-                  #   display_name, perception/retrieval/adjudicator prompts,
-                  #   rule_records, boost_rule_score, detail_extractor, details_model,
+                  #   display_name, perception/adjudicator prompts,
+                  #   rule_records, detail_extractor, details_model,
                   #   sport_details, tracked_evidence, metadata_provider
   registry.py     # SportRegistry + get_sport() (GenericSport fallback for unregistered sports)
   generic.py      # GenericSport — empty/stub defaults for any UNREGISTERED sport string
   basketball/  soccer/  hockey/  lacrosse/     # four full implementations, identical layout:
     sport.py         # <Sport>Sport wiring (implements the whole Sport interface)
-    prompts.py       # perception/retrieval/adjudicator prompt strings (incl. basketball)
-    rules.py         # rule-retrieval boosts (corpus in rules/<sport>_rules.py)
+    prompts.py       # sport-specific prompt bodies, composed with the shared Common fragments (Sprint 16C)
     tracking.py      # tracked-evidence layer (soccer/hockey/lacrosse; basketball uses basketball_vision)
     extractor.py     # <Sport>DetailExtractor -> <Sport>Details (basketball's is services/extractors/basketball.py)
     game_context.py  # metadata-provider seam (basketball -> NBA provider; others None)
 ```
 
-- **What the plugin owns (the whole `Sport` contract):** `display_name`, the three prompts, `rule_records()` (the corpus), `boost_rule_score()`, `detail_extractor()`, `details_model()` (the `SportDetails` subclass), `sport_details()`, `tracked_evidence()`, and `metadata_provider()`. Basketball is symmetric with the others (its prompts live in `sports/basketball/prompts.py`).
+- **What the plugin owns (the whole `Sport` contract):** `display_name`, the two prompts (perception + adjudicator), `rule_records()` (the corpus), `detail_extractor()`, `details_model()` (the `SportDetails` subclass), `sport_details()`, `tracked_evidence()`, and `metadata_provider()`. Basketball is symmetric with the others (its prompts live in `sports/basketball/prompts.py`).
 - **How the generic seams delegate (no hardcoded per-sport tables):** every shared lookup resolves `get_sport(sport)` and calls the matching method —
   - `rules/sport_config.py:get_rules_for_sport()` → `.rule_records()`; `normalize_sport()`/`supported_sports()` → `registry.available()`
-  - `services/analysis/prompts.py:_get_*_prompt()` → `.perception_prompt()`/`.retrieval_prompt()`/`.adjudicator_prompt()`
-  - `services/analysis/retrieval.py` → `.boost_rule_score()`
+  - `services/analysis/prompts.py:_get_*_prompt()` → `.perception_prompt()`/`.adjudicator_prompt()`
+  - `services/analysis/rule_corpus.py:_rule_records()` → `.rule_records()` (the full corpus injected into adjudication)
   - `services/extractors/registry.py:get_extractor()` → `.detail_extractor()`
   - `services/perception_schema.py:get_sport_details_model()` → `.details_model()`
   - `services/metadata/registry.py:get_metadata_provider()` → `.metadata_provider()`
@@ -117,9 +121,9 @@ sports/
 
   These generic functions stay as the stable, monkeypatchable seams; only the *decision* lives in the plugin. Import cycles are avoided by lazy `from sports import get_sport` inside the delegating functions, and by keeping all `services`/`rules` imports lazy (inside methods) in every `sports/<sport>/sport.py`.
 - **Unregistered sports** resolve to a name-carrying `GenericSport`: empty rules, stub prompts, `EmptyDetailExtractor`, `EmptySportDetails`, no tracking, no game context — the graceful Claude-only fallback, never a crash.
-- **Supported events:** **soccer** — foul, offside, handball, penalty, red card, yellow card, goal; **hockey** — icing, offside, tripping, cross-checking, boarding, slashing, hooking; **lacrosse** — illegal body check, slash, push, crease violation, offside, loose-ball push. Each is a rule record in `rules/<sport>_rules.py` (keys become uppercase `rule_id`s) returned by the plugin's `rule_records()`, with a tuned boost in `sports/<sport>/rules.py`.
+- **Supported events:** **soccer** — foul, offside, handball, penalty, red card, yellow card, goal; **hockey** — icing, offside, tripping, cross-checking, boarding, slashing, hooking; **lacrosse** — illegal body check, slash, push, crease violation, offside, loose-ball push. Each is a rule record in `rules/<sport>_rules.py` (keys become uppercase `rule_id`s) returned by the plugin's `rule_records()`.
 - **Adding a sport = exactly three steps, no other backend file changes:**
-  1. Create `sports/<sport>/` implementing the `Sport` interface (prompts, `rule_records`, boosts, `detail_extractor`, `details_model`, tracking, game context).
+  1. Create `sports/<sport>/` implementing the `Sport` interface (prompts, `rule_records`, `detail_extractor`, `details_model`, tracking, game context).
   2. (Its rule corpus + `SportDetails` subclass can live inside the package — a new sport touches neither `rules/sport_config.py` nor `services/perception_schema.py`.)
   3. `registry.register(<Sport>Sport())` in `sports/registry.py`.
 
@@ -129,12 +133,13 @@ sports/
 
 `ai_analyzer.py` was ~1500 lines; its concerns were split into a package, leaving `ai_analyzer` as the orchestrator (~700 lines). Every name is re-imported into `ai_analyzer`, so `from services.ai_analyzer import ...` and `monkeypatch.setattr(ai, ...)` seams are unchanged.
 
-- `prompts.py` — shared reasoning framings, generic stub-prompt builders, and the `_get_*_prompt(sport)` selectors that now **delegate to `get_sport(sport).*_prompt()`** (each sport's prompt strings live in `sports/<sport>/prompts.py`).
+- `prompts.py` — the shared **Common layer** of the prompt composition (Sprint 16C): `compose(*parts)` plus the reusable fragments every prompt shares (`perception_intro`, `PERCEPTION_VISUAL_QUALITY`, `PERCEPTION_OUTPUT_HEADER`, `perception_uncertainty`, `impact_zone_note`; `adjudicator_intro`, `VALID_VERDICTS`, `CITATION_DISCIPLINE`, `adjudicator_uncertainty`, `ADJUDICATOR_OUTPUT_INSTRUCTION`), the conservative/skeptical **Task-layer** framings, the generic stub builders (which compose the same fragments), and the `_get_*_prompt(sport)` selectors that **delegate to `get_sport(sport).*_prompt()`**. Each sport's plugin composes **Common → Sport → Task**: `sports/<sport>/prompts.py` holds only the sport-specific bodies (observation guidelines, perception JSON body, decision framework, rulebook/official names). Post-16B the adjudicator's verbose inline verdict-JSON block was collapsed into the one-line `ADJUDICATOR_OUTPUT_INSTRUCTION` (the schema is enforced by Pydantic), reducing per-request tokens; the four sport prompt files shrank ~18%.
 - `frames.py` — `FRAME_DIR`, ffprobe/ffmpeg frame extraction + on-disk cache.
-- `retrieval.py` — keyword rule-record loading + ranking (both `@lru_cache`d).
+- `rule_corpus.py` — the sport rule corpus: `_rule_records(sport)` (full corpus, `@lru_cache`d) + `_rules_text(rules)` (renders it for the adjudicator prompt). Formerly `retrieval.py`; Sprint 16A dropped the keyword ranking.
 - `mock_result.py` — the canned, network-free demo result.
 - `diagnostics.py` — additive detection/YOLO-influence diagnostics.
 - `contracts.py` — `TypedDict`s (`RuleRecord`, `AdjudicatorOutput`, `AgentResult`) documenting the payload shapes (annotation-only; no runtime validation).
+- `response_models.py` — Pydantic models (`PerceptionResponse`, `AdjudicatorResponse`) that **validate** every raw model reply (Sprint 16B); their JSON Schema also drives provider-native structured output.
 
 `ai_analyzer.py` still owns orchestration, the provider-instance + result caches, reconciliation, and response building.
 
@@ -145,7 +150,7 @@ The response is assembled as plain dicts in `_build_response` / `_frontend_perce
 ### FastAPI entrypoint (`backend/main.py`)
 
 - `GET /api/health` — liveness (Render healthcheck; backward-compatible `status:"ok"` superset via `services/health.liveness()`); `GET /` — liveness message.
-- `GET /api/health/ready` — readiness (`200`/`503`) with provider/ffmpeg/upload-dir checks; `GET /api/version`; `GET /api/metrics` — Prometheus text (Sprint 15).
+- `GET /api/health/ready` — readiness (`200`/`503`) with provider / provider-comms / ffmpeg / upload-dir checks; `GET /api/version`; `GET /api/metrics` — Prometheus text (Sprint 15).
 - `POST /api/analyze` — multipart (`file`, `sport`, `level`, `league`, `original_call`, `ref_name`); saves the clip, runs `analyze_clip` off the event loop, persists via `services/supabase_store.py`. `POST /analyze` is the same with legacy field names. Both carry an optional `Depends(api_key_auth)` (no-op unless `API_KEYS` set).
 - `GET /api/clips/{name}`, `GET /api/frames/{clip_id}/{name}`, `GET /api/feed` — media + feed.
 - **Observability middleware** wraps every request: assigns/echoes `X-Request-ID`, emits a structured log line, records metrics, and enforces the optional rate limit on the analyze paths. All additive — response bodies are unchanged.
@@ -161,13 +166,13 @@ Production hardening — **all additive, off/backward-compatible by default, no 
 - **Rate limiting** (`services/security/rate_limit.py`): a pure, clock-injectable fixed-window `RateLimiter`, keyed per client (API key else IP), enabled by `RATE_LIMIT_PER_MINUTE` (>0). Applied in the middleware to `/analyze` + `/api/analyze`; 429 + `Retry-After` on reject. In-process (single-instance); swap for Redis behind `allow()` for multi-replica.
 - **Logging** (`services/observability/logging_config.py`): `configure_logging()` sets JSON (`LOG_FORMAT=json`, default) or plain logs at `LOG_LEVEL`. NB: never pass reserved `LogRecord` names (e.g. `filename`) in `extra=`.
 - **Metrics** (`services/observability/metrics.py`): a thread-safe, dependency-free registry rendering Prometheus text at `/api/metrics` — `refcheck_http_requests_total{method,path,status}` (path = **route template**, bounded cardinality), `refcheck_http_request_duration_seconds`, `refcheck_analyses_total{sport,verdict}`, `refcheck_rate_limited_total`, `refcheck_auth_failures_total`.
-- **Health** (`services/health.py`): `liveness()` / `readiness()` pure functions; readiness degrades (`503`) rather than raising when a dependency (provider key, ffmpeg, upload dir) is missing.
+- **Health** (`services/health.py`): `liveness()` / `readiness()` pure functions; readiness degrades (`503`) rather than raising when a dependency (provider key, ffmpeg, upload dir) is missing. The `provider_comms` check (Sprint 16D) reports transport health from `provider_health()` — degraded after a real provider call exhausts its retries.
 - **Docker**: multi-stage build (builder installs wheels → slim runtime copies site-packages), non-root `appuser`, container `HEALTHCHECK`, tightened `.dockerignore`. Test deps (`pytest`, `httpx`) live in `requirements-dev.txt`, kept out of the image.
 - **Performance**: the middleware adds **~0.3 ms/request** and the analysis pipeline is unchanged — measured by `scripts/prod_overhead_benchmark.py` (HTTP before/after) and `scripts/perf_benchmark.py` (pipeline). Tested in `tests/test_production.py` (23 tests).
 
 ### AI provider abstraction
 
-The four-agent pipeline talks to LLMs **only** through the provider interface in `backend/services/ai/`. The rest of the app never knows whether it is speaking to Anthropic, Gemini, or the mock.
+The pipeline talks to LLMs **only** through the provider interface in `backend/services/ai/`. The rest of the app never knows whether it is speaking to Anthropic, Gemini, or the mock.
 
 **Where providers live:**
 
@@ -183,19 +188,19 @@ backend/services/ai/
 
 **The interface** (`AIProvider`): `send_messages(system_prompt, user_content, temperature, max_tokens) -> str`, `supports_vision()`, `provider_name()`, and an `is_mock` property.
 
-**How the pipeline interacts with providers:** `ai_analyzer.py` resolves the active provider once via `get_provider()` (from `AI_PROVIDER`). If `provider.is_mock`, it takes the canned demo path (`_mock_ai_result`, unchanged output). Otherwise the three real agents (`_perception_agent`, `_retrieval_agent`, `_adjudicator_agent`) send their turns through the single `_send_messages()` seam, which delegates to `provider.send_messages()`. Message content is provider-neutral: callers pass a string or a list of `text_part(...)` / `image_part(path)` parts, and each provider translates them into its own wire format. The raw text reply is parsed by the **shared** `_extract_json()` in `ai_analyzer.py` — parsing is never duplicated per provider.
+**How the pipeline interacts with providers:** `ai_analyzer.py` resolves the active provider once via `get_provider()` (from `AI_PROVIDER`). If `provider.is_mock`, it takes the canned demo path (`_mock_ai_result`, unchanged output). Otherwise the real agents (`_perception_agent` and the two `_adjudicator_agent` calls) send their turns through the single `_send_messages()` seam, which delegates to `provider.send_messages()`. Message content is provider-neutral: callers pass a string or a list of `text_part(...)` / `image_part(path)` parts, and each provider translates them into its own wire format. **Structured outputs (Sprint 16B):** the agents call `_send_validated()` (not `_send_messages` directly), which passes the target model's JSON Schema to the provider for native structured output and then validates the raw reply with Pydantic's `model_validate_json` (`services/analysis/response_models.py` — `PerceptionResponse`, `AdjudicatorResponse`). There is **no regex / hand-rolled JSON extraction** — a `ValidationError` (malformed JSON *or* schema mismatch) is retried with a corrective nudge (only validation failures retry; provider errors propagate to the mock fallback). The validated model is `model_dump()`-ed back to a plain dict, so the `/api/analyze` shape is unchanged.
 
 **Why provider-specific logic must never leak into `ai_analyzer.py`:** the analyzer owns the *pipeline* (agents, reconciliation, diagnostics), not vendor plumbing. Keeping HTTP/SDK/auth/model-name/image-encoding details inside the provider classes is what makes providers swappable by env var alone and keeps the pipeline untouched when a backend changes.
 
-**Environment configuration:** `AI_PROVIDER` selects the provider (`mock` | `anthropic` | `gemini`; default `mock`; invalid values raise a clear error). `anthropic` needs `ANTHROPIC_API_KEY` (model override: `AI_MODEL`, default `claude-sonnet-4-5`). `gemini` needs `GEMINI_API_KEY` and the `google-genai` package (model override: `GEMINI_MODEL`, default `gemini-2.5-flash`). Missing keys degrade to the mock fallback with the reason surfaced in diagnostics; an unsupported `AI_PROVIDER` value fails loudly. **Opt-in provider optimizations (Sprint 14, default OFF):** `ANTHROPIC_PROMPT_CACHE=1` enables Anthropic prompt caching of the system prompt; `GEMINI_JSON_MODE=1` requests JSON-typed Gemini output. Both are pure request-builder changes (`build_payload` / `generation_kwargs`) that leave default behavior identical.
+**Environment configuration:** `AI_PROVIDER` selects the provider (`mock` | `anthropic` | `gemini`; default `mock`; invalid values raise a clear error). `anthropic` needs `ANTHROPIC_API_KEY` (model override: `AI_MODEL`, default `claude-sonnet-4-5`). `gemini` needs `GEMINI_API_KEY` and the `google-genai` package (model override: `GEMINI_MODEL`, default `gemini-2.5-flash`). Missing keys degrade to the mock fallback with the reason surfaced in diagnostics; an unsupported `AI_PROVIDER` value fails loudly. **Structured outputs (Sprint 16B):** when the pipeline validates a reply it passes a `response_schema` to `send_messages`. **Gemini** always honors it — `response_mime_type=application/json` + `response_schema` (native JSON mode + schema). **Anthropic** native `output_config.format` is **opt-in** via `ANTHROPIC_STRUCTURED_OUTPUT=1` (default OFF, because the default model `claude-sonnet-4-5` does not guarantee support — off = "robust JSON mode": JSON-only prompt + Pydantic validation + retry); enable it only on a supporting model (Opus 4.8 / Sonnet 5 / Haiku 4.5). `STRUCTURED_OUTPUT_RETRIES` (default 1) tunes retries. **Transport reliability (Sprint 16D):** every provider call goes through `services/ai/reliability.py:call_with_retry` (wrapped in `_send_messages`), which retries **only transient** failures (429/5xx/529, timeout, dropped connection) with exponential backoff + jitter, and never retries permanent failures (400 bad request, 401 auth, 403/404) or validation failures (those are a separate retry in `_send_validated`). Providers raise classified `TransientProviderError`/`PermanentProviderError` (`services/ai/errors.py`); on exhaustion the error message names provider, model, attempt count, and latency (→ `fallback_reason`), and a process-local `provider_health()` record feeds the `provider_comms` readiness check. Tunable via `PROVIDER_MAX_RETRIES` (default 2), `PROVIDER_BACKOFF_BASE_SECONDS` (0.5), `PROVIDER_BACKOFF_MAX_SECONDS` (8.0), `PROVIDER_TIMEOUT_SECONDS` (90). **Opt-in provider optimizations (Sprint 14, default OFF):** `ANTHROPIC_PROMPT_CACHE=1` enables Anthropic prompt caching of the system prompt; `GEMINI_JSON_MODE=1` requests JSON-typed Gemini output (superseded by the schema path when validating). All are pure request-builder changes (`build_payload` / `generation_kwargs`) that leave default behavior identical.
 
-**Adding a future provider** (OpenAI, Azure, Grok, Ollama, …): (1) create one class implementing `AIProvider` under `providers/`, (2) add one `_registry.register(...)` line in `factory.py` (the shared `services/registry.Registry`). The four-agent pipeline requires zero changes. Design principle for contributors: a provider only knows how to turn a system prompt + neutral content + temperature/max_tokens into a text reply — it must not import `ai_analyzer`, know about agents, or reshape JSON.
+**Adding a future provider** (OpenAI, Azure, Grok, Ollama, …): (1) create one class implementing `AIProvider` under `providers/`, (2) add one `_registry.register(...)` line in `factory.py` (the shared `services/registry.Registry`). The pipeline requires zero changes. Design principle for contributors: a provider only knows how to turn a system prompt + neutral content + temperature/max_tokens into a text reply — it must not import `ai_analyzer`, know about agents, or reshape JSON.
 
 ### Hybrid perception grounding (YOLO tracked evidence)
 
 **Principle:** YOLO tracked detections are *supporting evidence only*. Claude Vision remains the semantic authority; detections ground the adjudicators' reasoning but never replace it, and never change the frontend API contract.
 
-**Detector paths** (`DETECTOR` env): `claude_vision` (semantic only, `detections=None`), `yolov8` (detections only), `hybrid` (Claude perception + YOLO detections). `hybrid` degrades gracefully: if YOLO inference fails (e.g. ultralytics missing, bad frame), `HybridDetector.detect` keeps Claude's perception and drops tracking (`detections=None`) instead of failing the analysis — the four-agent pipeline still runs, and diagnostics show `detections_present=False`.
+**Detector paths** (`DETECTOR` env): `claude_vision` (semantic only, `detections=None`), `yolov8` (detections only), `hybrid` (Claude perception + YOLO detections). `hybrid` degrades gracefully: if YOLO inference fails (e.g. ultralytics missing, bad frame), `HybridDetector.detect` keeps Claude's perception and drops tracking (`detections=None`) instead of failing the analysis — the pipeline still runs, and diagnostics show `detections_present=False`.
 
 **How detections influence the verdict** (all in `_run_four_agent_pipeline` / `_build_response`, basketball-scoped):
 - `services/extractors/basketball_vision.py:summarize_tracked_evidence()` turns `RawDetections` into a compact evidence dict: offensive/defender `track_id`s, per-frame `possession_timeline`, `possession_changes`, ball-handler + defender movement, **ball's own `ball_movement`** (from `track_ball`, independent of any player), and a `tracking_confidence ∈ [0,1]`.
@@ -256,11 +261,11 @@ Both modes flow through `run_benchmark`; single-provider still writes the bare `
 
 AI-quality improvements — **all internal; the `/api/analyze` response shape and the provider/env seams are unchanged**, and every optimization defaults to the prior behavior.
 
-- **Better retrieval** (`services/analysis/retrieval.py`): scoring moved from raw substring counting to tokenized, **stopword-filtered, field-weighted** whole-word overlap — a query term matched in a rule's id/section-title/call-type (`_LABEL_WEIGHT=3`) outweighs one buried in body text (`_BODY_WEIGHT=1`); the haystack is built **sport-agnostically** from the summary/event-type + a flattened `sport_details` view (`_build_haystack`), so retrieval reads the same for every sport. Sport-plugin boosts still apply on top; the corpus/ranking `@lru_cache`s and top-1 rankings are preserved (all plugin retrieval tests still pass).
-- **Improved prompts + sport-agnostic query** (`_build_retrieval_prompt`): the retrieval agent no longer hardcodes basketball perception fields (court zone, restricted area, legal guarding position); it surfaces the neutral core plus every `sport_details` signal, so soccer/hockey/lacrosse queries are as informed as basketball's.
-- **Chain-of-thought isolation** (`_extract_json` + shared `_COT_ISOLATION_INSTRUCTION`): both adjudicators reason in a private `<thinking>…</thinking>` scratchpad, then emit only the final JSON. `_extract_json` strips `<thinking>`/`<scratchpad>`/`<reasoning>`/`<analysis>` blocks first, then prefers a fenced ```json block, then falls back to the outermost braces — so private reasoning never leaks into or corrupts the parsed verdict (even if the scratchpad contains braces).
+- **Better retrieval / improved retrieval query** (~~`retrieval.py`, `_build_retrieval_prompt`~~): **removed in Sprint 16A.** The field-weighted keyword scorer and the sport-agnostic query builder these bullets described were part of the retrieval stage, which is gone — the full rule corpus is now injected into the adjudicators, so there is nothing to rank or query for.
+- **Chain-of-thought isolation** (~~`_extract_json` + `_COT_ISOLATION_INSTRUCTION`~~): **replaced in Sprint 16B.** The `<thinking>` scratchpad + regex `_extract_json` were removed — structured output / JSON mode constrains the reply to pure JSON (incompatible with a text scratchpad), so the model commits directly to the schema-validated verdict and step-by-step reasoning collapses into the schema's `reasoning` field. See the structured-outputs bullet below and `services/analysis/response_models.py`.
 - **Confidence calibration** (`services/analysis/calibration.py`): `calibrate_confidence(raw, visual_quality)` shrinks the agreed confidence toward the 0.5 prior as footage degrades (`clear` = identity, so well-conditioned clips and every existing reconciliation test are unchanged; `partial`/`obstructed`/`poor` pull toward the prior). Applied in `_reconcile` on the agreement path only; bounded, never flips a verdict.
-- **Provider optimization** (opt-in, default OFF — safe): `ANTHROPIC_PROMPT_CACHE=1` sends the large reused system prompt as a cache-controlled block (`AnthropicProvider.build_payload`, cutting input cost/latency across the two adjudicators + repeats); `GEMINI_JSON_MODE=1` requests `application/json` output (`GeminiProvider.generation_kwargs`, more reliable parsing — trades off the CoT scratchpad). Both request builders are pure and unit-tested without a network/SDK.
+- **Provider optimization** (opt-in, default OFF — safe): `ANTHROPIC_PROMPT_CACHE=1` sends the large reused system prompt as a cache-controlled block (`AnthropicProvider.build_payload`, cutting input cost/latency across the two adjudicators + repeats); `GEMINI_JSON_MODE=1` requests `application/json` output (`GeminiProvider.generation_kwargs`; superseded by the Sprint 16B schema path when validating). Both request builders are pure and unit-tested without a network/SDK.
+- **Structured outputs + Pydantic validation (Sprint 16B)** (`services/analysis/response_models.py`, `ai_analyzer._send_validated`): every model reply is validated against a Pydantic model (`PerceptionResponse` / `AdjudicatorResponse`) via `model_validate_json` — no regex, no hand-rolled parsing. Providers get the model's JSON Schema for native structured output (Gemini JSON mode + schema always; Anthropic `output_config.format` behind `ANTHROPIC_STRUCTURED_OUTPUT`, else robust JSON mode). Validation failures retry with a corrective nudge (`STRUCTURED_OUTPUT_RETRIES`, default 1); only validation failures retry, and exhaustion degrades to the mock fallback with a descriptive `fallback_reason`. Covered by `tests/test_structured_outputs.py`.
 - **Evaluation metrics**: added `brier_score` (proper scoring rule for confidence calibration) and multiclass `matthews_corrcoef` to `evaluation/metrics.py`, surfaced on `EvaluationReport` (`brier`, `mcc`) and in the comparison table + `recommended_provider()`.
 
 Unit-tested in `tests/test_model_improvements.py` (28 tests); the full backend suite stays green.
@@ -292,7 +297,7 @@ Run `npm run build` (or `npm test` for the pure units: `overlay`, `sportEvidence
 
 ### Performance optimizations (Sprint 6)
 
-The four-agent pipeline was profiled and optimized for latency, redundant model
+The pipeline was profiled and optimized for latency, redundant model
 calls, and memory. **The API contract is unchanged**: every optimization is a
 transparent internal change or opt-in behind an env flag (default OFF). Full
 write-up with before/after numbers: `backend/PERFORMANCE.md`. Benchmark harness:
@@ -314,9 +319,9 @@ What changed (all in `services/ai_analyzer.py` unless noted):
 - **Adjudicator prompt built once.** Both adjudicators receive an identical user
   prompt (only system framing/temperature differ); `_build_adjudicator_prompt`
   builds it once instead of serializing the perception+rules payload twice.
-- **Rule caches.** `_rule_records(sport)` is `@lru_cache`-d (immutable tuple) and
-  `_rank_rules(haystack, sport, limit)` memoizes the pure ranking step;
-  `_retrieve_rules` still returns a fresh `list`.
+- **Rule corpus cache.** `_rule_records(sport)` is `@lru_cache`-d (immutable tuple);
+  the pipeline copies it into a fresh `list` for the adjudicator prompt. (Sprint 16A
+  removed the `_rank_rules`/`_retrieve_rules` ranking layer along with retrieval.)
 - **Provider-instance cache.** `_active_provider()` caches the resolved provider
   keyed on the `AI_PROVIDER` value (re-resolves on change); `get_provider()`
   stays the pure factory seam. `_reset_provider_cache()` for tests/benchmarks.
@@ -329,9 +334,10 @@ What changed (all in `services/ai_analyzer.py` unless noted):
   calls. Off by default because adjudicator B is temperature 0.7 (re-running is
   intentionally non-deterministic unless caching is enabled).
 
-Note: there are **no embeddings/FAISS** in this pipeline — retrieval is
-keyword-based — so "cache embeddings" maps to the rule-corpus/ranking caches
-above (see `backend/PERFORMANCE.md`).
+Note: there are **no embeddings/FAISS** in this pipeline, and (since Sprint 16A) no
+retrieval stage at all — the full rule corpus is injected into the adjudicators — so
+"cache embeddings" maps to the `_rule_records` corpus cache above (see
+`backend/PERFORMANCE.md`).
 
 ### Configuration & shared utilities (Sprint 7)
 
@@ -364,5 +370,5 @@ above (see `backend/PERFORMANCE.md`).
 
 - The response is built as dicts in `services/ai_analyzer.py` (`_build_response`/`_frontend_perception`); keep `frontend/src/lib/types.ts` in sync when the shape changes. There is no `schemas.py`.
 - The Anthropic model default `claude-sonnet-4-5` lives in `backend/services/ai/providers/anthropic_provider.py` (`DEFAULT_MODEL`, sourced from `config.DEFAULT_ANTHROPIC_MODEL`), overridable via `AI_MODEL`. It is intentionally not updated yet — check before changing. Provider-specific model names belong in the provider classes, never in `ai_analyzer.py`.
-- `_retrieve_rules()` scores the static corpus from `rules.sport_config` (keyword-based, field-weighted + stopword-filtered as of Sprint 14; no index files). The process must start from `backend/` so lazy `rules.*` imports resolve.
+- `_rule_records(sport)` (in `services/analysis/rule_corpus.py`) loads the sport's complete corpus from `rules.sport_config`; the pipeline injects it whole into both adjudicators (Sprint 16A removed the retrieval/ranking stage; no index files). The process must start from `backend/` so lazy `rules.*` imports resolve.
 - Render free tier sleeps after 15 min inactivity. Hit `/api/health` before a demo to warm up.

@@ -1,19 +1,34 @@
-"""Shared prompt catalog: reasoning framings, stub builders, and selectors.
+"""Shared prompt catalog: layered composition, framings, stubs, selectors (Sprint 16C).
 
-Sport-specific prompt *strings* live in each sport's plugin
-(`sports/<sport>/prompts.py`). This module keeps only what is genuinely shared:
+Every system prompt is composed in three layers — **Common → Sport → Task** —
+instead of each sport repeating the shared sections verbatim:
 
-- the sport-neutral reasoning framings appended to each adjudicator, and
-- the generic stub prompt builders used for sports with no dedicated plugin, and
-- the `_get_*_prompt(sport)` selectors the pipeline calls, which now delegate to
-  `get_sport(sport).*_prompt()` (the Sport plugin owns its prompts).
+- **Common Instructions** (this module): the sport-neutral fragments every prompt
+  shares — the perception intro/visual-quality/output-header/uncertainty/impact-zone
+  note, and the adjudicator intro/valid-verdicts/citation/uncertainty/output
+  instruction. Defined **once** here.
+- **Sport Instructions** (`sports/<sport>/prompts.py`): the sport-specific bodies —
+  observation guidelines, geometry, the perception JSON schema body, the decision
+  framework, and the rulebook/official names. Each plugin `compose()`s the Common
+  fragments with its own bodies.
+- **Task Instructions**: the per-agent framing — perception vs. adjudicator (the two
+  prompt builders) plus the conservative/skeptical `*_FRAMING` appended per adjudicator.
 
-Adding a sport therefore never touches this file — its prompts come from its
-plugin via the delegation below.
+`compose(*parts)` joins the layers. `_get_*_prompt(sport)` still delegates to the
+Sport plugin, so adding a sport never touches this file.
 """
 
 from __future__ import annotations
 
+
+def compose(*parts: str) -> str:
+    """Join prompt fragments into one prompt (strip each, drop empties, blank-line sep)."""
+    return "\n\n".join(part.strip() for part in parts if part and part.strip())
+
+
+# ---------------------------------------------------------------------------
+# Task layer — reasoning postures appended to each adjudicator (per-agent).
+# ---------------------------------------------------------------------------
 
 CONSERVATIVE_FRAMING = """
 REASONING POSTURE - CONSERVATIVE:
@@ -29,22 +44,116 @@ You are an independent reviewer. Do not defer to the original call by default. E
 
 
 # ---------------------------------------------------------------------------
-# Stub prompt builders for sports with no dedicated plugin (GenericSport).
+# Common layer — perception fragments (shared by every sport's perception prompt).
 # ---------------------------------------------------------------------------
 
-def _make_stub_perception_prompt(sport: str) -> str:
-    return f"""
-You are a sports video analyst reviewing {sport} officiating.
+def perception_intro(specialty: str, clip_noun: str) -> str:
+    """Opening role + task, shared by every perception prompt.
 
-Your job is to describe what you observe in structured form. You are NOT issuing a verdict.
-A separate agent will rule on the call. Be accurate and honest about what you can see.
+    `specialty` names the sport for the analyst role (e.g. "ice hockey"); `clip_noun`
+    names the clip (e.g. "hockey"). Everything after those two words is identical
+    across sports.
+    """
+    return (
+        f"You are a sports video analyst specializing in {specialty} officiating review.\n\n"
+        f"You will receive a sequence of evenly-spaced frames from a short {clip_noun} clip. "
+        "Your job is to describe what you observe in structured form. You are NOT issuing a "
+        "verdict. A separate agent will rule on the call. Your role is to be the most accurate "
+        "possible eyes for the system."
+    )
 
-OBSERVATION GUIDELINES:
-Describe the players involved, their positions, any contact, and the key moment of the play.
-Be honest about what you cannot see. Lower perception_confidence if footage is unclear.
 
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
+PERCEPTION_VISUAL_QUALITY = (
+    "Visual quality: Honestly assess the camera angle. Is the key moment clearly visible, "
+    "partially obscured, blocked by another player, or unusable?"
+)
+
+
+def perception_uncertainty(tail: str = "") -> str:
+    """UNCERTAINTY DISCIPLINE for perception; `tail` adds sport-specific angle notes."""
+    base = (
+        "UNCERTAINTY DISCIPLINE:\n"
+        "Be honest. If a frame is blurry, an angle is wrong, or you cannot tell what happened, "
+        "say so and lower perception_confidence."
+    )
+    return f"{base} {tail.strip()}" if tail.strip() else base
+
+
+PERCEPTION_OUTPUT_HEADER = "OUTPUT FORMAT:\nOutput ONLY valid JSON. No prose, no markdown fences."
+
+
+def impact_zone_note(uses: str) -> str:
+    """Trailing impact-zone note; `uses` is the sport-specific list of what to mark."""
+    return (
+        "Impact zone should be normalized to the frame: x_percent and y_percent range from 0 to "
+        f"100. Use it to {uses}. If the exact point is unclear, estimate the most relevant area "
+        "and lower confidence."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Common layer — adjudicator fragments (shared by every sport's adjudicator prompt).
+# ---------------------------------------------------------------------------
+
+def adjudicator_intro(rulebook_line: str, official: str) -> str:
+    """The 'You will be given: 1/2/3 … issue a verdict' intro, shared by every sport.
+
+    `rulebook_line` names the sport's rulebook (item 2); `official` names the on-field
+    official (e.g. "on-ice official").
+    """
+    return (
+        "You will be given:\n"
+        "1. A structured description of what happened in a clip, produced by a perception agent\n"
+        f"2. {rulebook_line}\n"
+        f"3. Optionally, what the {official} originally called\n\n"
+        "Your job is to issue a verdict on whether the original officiating call was correct."
+    )
+
+
+VALID_VERDICTS = (
+    "VALID VERDICTS:\n"
+    '- "fair_call": the original call was consistent with the rules, given the evidence\n'
+    '- "bad_call": the original call was inconsistent with the rules, given the evidence\n'
+    '- "inconclusive": the visual evidence is insufficient to render a confident verdict'
+)
+
+CITATION_DISCIPLINE = (
+    "CITATION DISCIPLINE:\n"
+    "You must cite at least one rule by its rule_id from the provided rules. Do not invent rule "
+    "IDs. Your reasoning must explicitly connect the play details to the cited rule text."
+)
+
+
+def adjudicator_uncertainty(tail: str = "") -> str:
+    """UNCERTAINTY DISCIPLINE for adjudication; `tail` adds sport-specific angle notes."""
+    base = (
+        "UNCERTAINTY DISCIPLINE:\n"
+        'If perception_confidence is low (<0.5) or visual_quality is "obstructed" or "poor", '
+        "lean toward inconclusive."
+    )
+    return f"{base} {tail.strip()}" if tail.strip() else base
+
+
+# The concise replacement for the former inline verdict-JSON block. Post-Sprint-16B
+# the reply is validated against `AdjudicatorResponse` and the schema is passed to the
+# provider, so the verbose JSON example is redundant — this one line names every field
+# with just enough semantics, shorter than the block it replaces. Identical across every
+# sport (the dedup guarantee).
+ADJUDICATOR_OUTPUT_INSTRUCTION = (
+    "OUTPUT FORMAT:\n"
+    "Return ONLY valid JSON with keys: verdict (fair_call | bad_call | inconclusive), "
+    "confidence (0.0-1.0), primary_rule_id (a provided rule_id or null), supporting_rule_ids, "
+    "reasoning (2-4 sentences citing the primary rule), flags. No prose, no markdown fences."
+)
+
+
+# ---------------------------------------------------------------------------
+# Stub prompt builders for sports with no dedicated plugin (GenericSport).
+# They compose the shared fragments too, with generic bodies — so the fallback
+# stays consistent with the real sports and shares the Common layer.
+# ---------------------------------------------------------------------------
+
+_STUB_PERCEPTION_JSON = """
 {{
   "sport": "{sport}",
   "event_type": "unclear",
@@ -97,43 +206,30 @@ Output ONLY valid JSON. No prose, no markdown fences.
 """.strip()
 
 
-def _make_stub_retrieval_prompt(sport: str) -> str:
-    return f"""
-You convert {sport} play descriptions into short rulebook search queries.
-
-Output ONLY the search query as plain text. No preamble, no quotes, no markdown.
-5 to 15 words.
-Focus on the type of play, player actions, and any contact observed.
-""".strip()
+def _make_stub_perception_prompt(sport: str) -> str:
+    return compose(
+        perception_intro(sport, sport),
+        "OBSERVATION GUIDELINES:\n"
+        "Describe the players involved, their positions, any contact, and the key moment of the "
+        "play.",
+        PERCEPTION_VISUAL_QUALITY,
+        perception_uncertainty(),
+        PERCEPTION_OUTPUT_HEADER,
+        _STUB_PERCEPTION_JSON.format(sport=sport),
+    )
 
 
 def _make_stub_adjudicator_prompt(sport: str) -> str:
-    return f"""
-You are a {sport} officiating reviewer.
-
-You will be given a structured description of a play and any retrieved rules.
-Issue a verdict on whether the original call was correct.
-
-VALID VERDICTS:
-- "fair_call": the original call was consistent with the rules, given the evidence
-- "bad_call": the original call was inconsistent with the rules, given the evidence
-- "inconclusive": the visual evidence or available rules are insufficient for a confident verdict
-
-UNCERTAINTY DISCIPLINE:
-If no rules are provided, return inconclusive with a flag noting the absence of rules.
-If perception_confidence is below 0.5, lean toward inconclusive.
-
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
-{{
-  "verdict": "fair_call | bad_call | inconclusive",
-  "confidence": 0.0,
-  "primary_rule_id": null,
-  "supporting_rule_ids": [],
-  "reasoning": "2 to 4 sentences applying available evidence",
-  "flags": ["Sport-specific adjudication guidelines for {sport} are not yet configured."]
-}}
-""".strip()
+    return compose(
+        f"You are a {sport} officiating reviewer.",
+        "You will be given a structured description of a play and the sport's rulebook. Issue a "
+        "verdict on whether the original call was correct.",
+        VALID_VERDICTS,
+        "UNCERTAINTY DISCIPLINE:\n"
+        "If no rules are provided, return inconclusive with a flag noting the absence of rules. "
+        "If perception_confidence is below 0.5, lean toward inconclusive.",
+        ADJUDICATOR_OUTPUT_INSTRUCTION,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -144,11 +240,6 @@ Output ONLY valid JSON. No prose, no markdown fences.
 def _get_perception_prompt(sport: str) -> str:
     from sports import get_sport
     return get_sport(sport).perception_prompt()
-
-
-def _get_retrieval_prompt(sport: str) -> str:
-    from sports import get_sport
-    return get_sport(sport).retrieval_prompt()
 
 
 def _get_adjudicator_prompt(sport: str) -> str:

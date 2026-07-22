@@ -37,8 +37,7 @@ def _dets(frames):
 def _agent_result(perception=None, detector=None, detections=None, provider_used="anthropic_four_agent"):
     result = {
         "provider_used": provider_used,
-        "retrieval_query": "q",
-        "retrieved_rules": [],
+        "rules": [],
         "perception": perception or {"sport": "basketball", "event_type": "unclear"},
         "adjudicator_a": {"verdict": "inconclusive", "confidence": 0.5, "primary_rule_id": None, "reasoning": "r", "flags": []},
         "adjudicator_b": {"verdict": "inconclusive", "confidence": 0.5, "primary_rule_id": None, "reasoning": "r", "flags": []},

@@ -1,7 +1,7 @@
 """Hockey sport plugin tests (Sprint 11 — second new sport).
 
 Covers the full hockey plugin surface: registry resolution, prompts, rule
-retrieval + boosts, the detail extractor, and the tracking-evidence layer, plus
+corpus, the detail extractor, and the tracking-evidence layer, plus
 the pipeline seams (sport_details / tracked_evidence delegation) that make
 ``sport="hockey"`` route through the plugin without any core-pipeline change.
 """
@@ -93,7 +93,7 @@ def test_plugin_prompt_matches_catalog():
 
 
 # ---------------------------------------------------------------------------
-# Rule corpus + retrieval boosts
+# Rule corpus
 # ---------------------------------------------------------------------------
 
 def test_hockey_rules_cover_supported_events():
@@ -109,46 +109,6 @@ def test_hockey_rule_records_have_expected_shape():
     for r in records:
         assert set(r.keys()) >= {"rule_id", "section_title", "text", "call_type"}
         assert r["rule_id"] == r["rule_id"].upper()
-
-@pytest.mark.parametrize(
-    "rule_id,haystack,expected_positive",
-    [
-        ("ICING", "puck dumped from behind the red line untouched across goal line", True),
-        ("OFFSIDE", "both skates cross the blue line before the puck zone entry", True),
-        ("CROSS_CHECKING", "cross-check with both hands on the shaft", True),
-        ("BOARDING", "checked a defenseless player violently into the boards", True),
-        ("SLASHING", "a forceful slash chop with the stick blade on the hands", True),
-        ("HOOKING", "used the stick blade to hook and impede the opponent", True),
-        ("TRIPPING", "caused the opponent to trip and fall with the stick", True),
-        ("ICING", "a quiet neutral zone regroup", False),
-    ],
-)
-def test_hockey_boosts(rule_id, haystack, expected_positive):
-    from sports.hockey.rules import boost_rule_score
-    score = boost_rule_score(rule_id, haystack)
-    assert (score > 0) is expected_positive
-
-def test_retrieve_rules_hockey_ranks_boarding_first():
-    from services.ai_analyzer import _retrieve_rules
-    perception = {
-        "event_type": "possible_boarding",
-        "summary": "defenseless player checked violently into the boards",
-        "boards_involved": True,
-        "infraction_candidate": "boarding",
-    }
-    rules = _retrieve_rules("boarding boards defenseless check", perception, "hockey")
-    assert 1 <= len(rules) <= 5
-    assert rules[0]["rule_id"] == "BOARDING"
-
-def test_retrieve_rules_hockey_ranks_offside_first():
-    from services.ai_analyzer import _retrieve_rules
-    perception = {
-        "event_type": "possible_offside",
-        "summary": "attacker both skates cross the attacking blue line before the puck",
-    }
-    rules = _retrieve_rules("offside blue line both skates zone entry preceding", perception, "hockey")
-    assert rules[0]["rule_id"] == "OFFSIDE"
-
 
 # ---------------------------------------------------------------------------
 # Detail extractor
@@ -256,6 +216,6 @@ def test_mock_result_sport_field_hockey():
 
 def test_frontend_perception_hockey_has_sport_details_block():
     from services.ai_analyzer import _frontend_perception
-    result = _frontend_perception({"event_type": "possible_boarding", "summary": "test"}, "mock", "", "hockey")
+    result = _frontend_perception({"event_type": "possible_boarding", "summary": "test"}, "mock", "hockey")
     assert result["sport"] == "hockey"
     assert "hockey" in result["sport_details"]

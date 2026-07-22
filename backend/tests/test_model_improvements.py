@@ -1,9 +1,14 @@
 """Sprint 14 — Model Improvements: unit tests for the AI-quality changes.
 
-Covers: chain-of-thought isolation in JSON extraction, the sport-agnostic
-retrieval query builder, field-weighted retrieval scoring, confidence calibration,
-provider-optimization request builders (Claude prompt cache, Gemini JSON mode),
-and the new evaluation metrics (Brier, MCC) + provider recommendation.
+Covers: confidence calibration, provider-optimization request builders (Claude
+prompt cache, Gemini JSON mode), and the evaluation metrics (Brier, MCC) +
+provider recommendation.
+
+Note: two blocks of tests were removed as their features were retired —
+(1) the sport-agnostic retrieval query builder + field-weighted retrieval scoring
+(Sprint 16A, retrieval stage removed), and (2) the `<thinking>` chain-of-thought
+isolation in `_extract_json` (Sprint 16B, regex extraction replaced by
+structured outputs + Pydantic validation — see `test_structured_outputs.py`).
 """
 
 import os
@@ -12,126 +17,6 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
-
-
-# ---------------------------------------------------------------------------
-# Chain-of-thought isolation (_extract_json)
-# ---------------------------------------------------------------------------
-
-from services.ai_analyzer import _extract_json
-
-
-def test_extract_plain_json():
-    assert _extract_json('{"verdict": "fair_call"}') == {"verdict": "fair_call"}
-
-def test_extract_strips_thinking_block_before_json():
-    raw = '<thinking>The defender was set {this is not json}</thinking>\n{"verdict": "bad_call", "confidence": 0.7}'
-    assert _extract_json(raw) == {"verdict": "bad_call", "confidence": 0.7}
-
-def test_extract_ignores_braces_inside_scratchpad():
-    # A brace-containing scratchpad must not corrupt parsing of the real JSON.
-    raw = '<scratchpad>consider {"verdict": "WRONG"}</scratchpad> {"verdict": "fair_call"}'
-    assert _extract_json(raw) == {"verdict": "fair_call"}
-
-def test_extract_prefers_fenced_json_block():
-    raw = "Sure!\n```json\n{\"verdict\": \"inconclusive\"}\n```\nHope that helps."
-    assert _extract_json(raw) == {"verdict": "inconclusive"}
-
-def test_extract_falls_back_to_outermost_braces():
-    raw = 'Here is the verdict: {"verdict": "bad_call"} — thanks'
-    assert _extract_json(raw) == {"verdict": "bad_call"}
-
-def test_extract_raises_on_no_json():
-    with pytest.raises(Exception):
-        _extract_json("no json here at all")
-
-
-# ---------------------------------------------------------------------------
-# Sport-agnostic retrieval query builder (_build_retrieval_prompt)
-# ---------------------------------------------------------------------------
-
-from services.ai_analyzer import _build_retrieval_prompt
-
-
-def test_retrieval_prompt_includes_sport_and_core_fields():
-    prompt = _build_retrieval_prompt(
-        {"event_type": "possible_penalty", "summary": "trip in the box", "contact_detected": True},
-        "soccer",
-    )
-    assert "Sport: soccer" in prompt
-    assert "possible_penalty" in prompt
-    assert "trip in the box" in prompt
-
-def test_retrieval_prompt_flattens_sport_details_and_skips_basketball_labels():
-    prompt = _build_retrieval_prompt(
-        {
-            "event_type": "possible_penalty",
-            "summary": "foul",
-            "sport_details": {
-                "soccer": {
-                    "field_third": "attacking_third",
-                    "in_penalty_area": True,
-                    "offside_relevant": False,
-                    "foul_direction": "unclear",
-                }
-            },
-        },
-        "soccer",
-    )
-    assert "In penalty area: True" in prompt
-    assert "Field third: attacking_third" in prompt
-    # False / "unclear" values are skipped, and basketball-only labels never appear.
-    assert "Offside relevant" not in prompt
-    assert "Foul direction" not in prompt
-    assert "Legal guarding position" not in prompt
-    assert "Court zone" not in prompt
-
-def test_retrieval_prompt_flattens_nested_basketball_details():
-    prompt = _build_retrieval_prompt(
-        {
-            "event_type": "possible_charge",
-            "summary": "contact at the rim",
-            "sport_details": {
-                "basketball": {
-                    "offensive_control_status": "airborne_shooter",
-                    "defender_status": {"legal_guarding_position": "established"},
-                }
-            },
-        },
-        "basketball",
-    )
-    assert "Offensive control status: airborne_shooter" in prompt
-    assert "Legal guarding position: established" in prompt
-
-
-# ---------------------------------------------------------------------------
-# Field-weighted retrieval scoring
-# ---------------------------------------------------------------------------
-
-from services.analysis.retrieval import _tokens, _keyword_score, _LABEL_WEIGHT, _BODY_WEIGHT
-
-
-def test_tokens_drops_stopwords_and_short_noise():
-    assert _tokens("The defender was in the restricted area") == ["defender", "restricted", "area"]
-
-def test_keyword_score_weights_label_match_above_body():
-    rule = {
-        "rule_id": "OFFSIDE",
-        "section_title": "Offside offence",
-        "call_type": "Offside",
-        "text": "A player interfering with an opponent while beyond the last defender.",
-    }
-    # "offside" is only in the label fields -> label weight.
-    label_only = _keyword_score(frozenset(["offside"]), rule)
-    # "opponent" is only in the body -> body weight.
-    body_only = _keyword_score(frozenset(["opponent"]), rule)
-    assert label_only == _LABEL_WEIGHT
-    assert body_only == _BODY_WEIGHT
-    assert label_only > body_only
-
-def test_keyword_score_ignores_non_matching_terms():
-    rule = {"rule_id": "GOAL", "section_title": "Goal", "call_type": "Goal", "text": "ball over the line"}
-    assert _keyword_score(frozenset(["tripping", "handball"]), rule) == 0
 
 
 # ---------------------------------------------------------------------------

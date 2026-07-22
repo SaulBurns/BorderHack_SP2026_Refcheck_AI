@@ -87,6 +87,32 @@ def _check_upload_dir() -> dict:
         return {"ok": False, "detail": f"upload dir error: {type(exc).__name__}"}
 
 
+def _check_provider_comms() -> dict:
+    """Provider-communication health from the transport-retry layer (Sprint 16D).
+
+    `ok` when no real call has failed after exhausting retries (mock runs and a
+    fresh process are healthy); degrades with the last error and retry stats.
+    """
+    try:
+        from services.ai.reliability import provider_health
+
+        health = provider_health()
+        if health["last_outcome"] in (None, "success"):
+            detail = (
+                f"{health['calls']} call(s), {health['retries']} retr(y/ies); "
+                f"last: {health['last_outcome'] or 'none yet'}"
+            )
+        else:
+            detail = (
+                f"last {health['last_outcome']} on {health['last_provider']}/"
+                f"{health['last_model']} after {health['last_attempts']} attempt(s): "
+                f"{health['last_error']}"
+            )
+        return {"ok": health["ok"], "detail": detail}
+    except Exception as exc:  # never raise from a health check
+        return {"ok": True, "detail": f"provider-comms health unavailable: {type(exc).__name__}"}
+
+
 def readiness() -> dict:
     """Readiness payload with per-dependency checks.
 
@@ -95,6 +121,7 @@ def readiness() -> dict:
     """
     checks = {
         "provider": _check_provider(),
+        "provider_comms": _check_provider_comms(),
         "ffmpeg": _check_ffmpeg(),
         "upload_dir": _check_upload_dir(),
     }

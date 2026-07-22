@@ -4,6 +4,8 @@ The pipeline historically passed bare ``dict`` / ``list[dict]`` between agents,
 which the audit flagged as the main typing gap. These ``TypedDict``s document
 those structurally-fixed shapes and let a type checker catch key drift (e.g. the
 rule-record dict was built with slightly different keys in three places).
+``AgentResult.rules`` is the sport's complete rule corpus injected into the
+adjudicators (Sprint 16A removed the retrieval stage).
 
 They are annotation-only: because every pipeline module uses
 ``from __future__ import annotations``, referencing these types adds no runtime
@@ -23,7 +25,7 @@ TrackedEvidence = dict[str, Any]
 
 
 class RuleRecord(TypedDict, total=False):
-    """A retrieved rulebook record. `similarity_score` only on the fallback."""
+    """A rulebook record from the sport corpus. `similarity_score` only on the fallback."""
 
     rule_id: str
     section_title: str
@@ -50,8 +52,7 @@ class AgentResult(TypedDict, total=False):
     provider_used: str
     detector: str
     fallback_reason: str | None
-    retrieval_query: str
-    retrieved_rules: list[RuleRecord]
+    rules: list[RuleRecord]
     perception: PerceptionDict
     detections: Any  # RawDetections | None (kept loose to avoid an import cycle)
     tracked_evidence: TrackedEvidence | None

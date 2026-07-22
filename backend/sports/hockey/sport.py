@@ -1,7 +1,7 @@
 """Hockey sport plugin (Sprint 11 — second new sport).
 
-Wires together everything hockey-specific the four-agent pipeline needs: the
-hockey prompts, the hockey rule-retrieval boosts, the ``HockeyDetailExtractor``,
+Wires together everything hockey-specific the three-agent pipeline needs: the
+hockey prompts, the hockey rule corpus, the ``HockeyDetailExtractor``,
 the hockey tracked-evidence layer, and the (currently absent) game-context
 provider. ``ai_analyzer`` reaches all of this through the ``Sport`` interface,
 never by checking ``sport == "hockey"``.
@@ -26,10 +26,6 @@ class HockeySport(Sport):
         from sports.hockey.prompts import perception_prompt
         return perception_prompt()
 
-    def retrieval_prompt(self) -> str:
-        from sports.hockey.prompts import retrieval_prompt
-        return retrieval_prompt()
-
     def adjudicator_prompt(self) -> str:
         from sports.hockey.prompts import adjudicator_prompt
         return adjudicator_prompt()
@@ -37,10 +33,6 @@ class HockeySport(Sport):
     def rule_records(self) -> dict:
         from rules.hockey_rules import HOCKEY_RULES
         return HOCKEY_RULES
-
-    def boost_rule_score(self, rule_id: str, haystack: str) -> int:
-        from sports.hockey.rules import boost_rule_score
-        return boost_rule_score(rule_id, haystack)
 
     def detail_extractor(self) -> Any:
         from sports.hockey.extractor import HockeyDetailExtractor

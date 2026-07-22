@@ -1,10 +1,10 @@
 """Basketball sport plugin (Sprint 9).
 
 Wires together everything basketball-specific the pipeline needs: the basketball
-prompts (from the shared catalog), the basketball rule-retrieval boosts, the
-`BasketballDetailExtractor`, the tracked-evidence layer (`summarize_tracked_evidence`),
-and the NBA game-context provider. `ai_analyzer` reaches all of this through the
-`Sport` interface, never by checking `sport == "basketball"`.
+prompts, the basketball rule corpus, the `BasketballDetailExtractor`, the
+tracked-evidence layer (`summarize_tracked_evidence`), and the NBA game-context
+provider. `ai_analyzer` reaches all of this through the `Sport` interface, never
+by checking `sport == "basketball"`.
 """
 
 from __future__ import annotations
@@ -22,10 +22,6 @@ class BasketballSport(Sport):
         from sports.basketball.prompts import perception_prompt
         return perception_prompt()
 
-    def retrieval_prompt(self) -> str:
-        from sports.basketball.prompts import retrieval_prompt
-        return retrieval_prompt()
-
     def adjudicator_prompt(self) -> str:
         from sports.basketball.prompts import adjudicator_prompt
         return adjudicator_prompt()
@@ -33,10 +29,6 @@ class BasketballSport(Sport):
     def rule_records(self) -> dict:
         from rules.basketball_rules import BASKETBALL_RULES
         return BASKETBALL_RULES
-
-    def boost_rule_score(self, rule_id: str, haystack: str) -> int:
-        from sports.basketball.rules import boost_rule_score
-        return boost_rule_score(rule_id, haystack)
 
     def detail_extractor(self) -> Any:
         from services.extractors.basketball import BasketballDetailExtractor

@@ -37,8 +37,8 @@ from services.ai.provider import AIProvider, MessageContent
 
 # A perception/adjudicator-shaped JSON blob valid for every agent's parser:
 # perception reads it with .get() defaults; the adjudicators read verdict/
-# confidence; retrieval consumes the raw text. visual_quality/perception_confidence
-# are set so reconciliation does not short-circuit to "inconclusive".
+# confidence. visual_quality/perception_confidence are set so reconciliation
+# does not short-circuit to "inconclusive".
 _BENCH_REPLY = json.dumps(
     {
         "sport": "basketball",
@@ -77,7 +77,7 @@ class _BenchProvider(AIProvider):
     def supports_vision(self) -> bool:
         return True
 
-    def send_messages(self, *, system_prompt, user_content: MessageContent, temperature, max_tokens=1200) -> str:
+    def send_messages(self, *, system_prompt, user_content: MessageContent, temperature, max_tokens=1200, response_schema=None) -> str:
         with _BenchProvider._lock:
             _BenchProvider.calls += 1
             _BenchProvider._active += 1

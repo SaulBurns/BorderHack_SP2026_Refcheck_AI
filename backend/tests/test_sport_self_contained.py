@@ -43,14 +43,8 @@ class UnderwaterHockeySport(Sport):
     def perception_prompt(self) -> str:
         return "UWH PERCEPTION PROMPT describing the puck on the pool floor."
 
-    def retrieval_prompt(self) -> str:
-        return "UWH RETRIEVAL PROMPT"
-
     def adjudicator_prompt(self) -> str:
         return "UWH ADJUDICATOR PROMPT"
-
-    def boost_rule_score(self, rule_id: str, haystack: str) -> int:
-        return 5 if rule_id == "PUCK_ADVANCE" and "puck" in haystack else 0
 
     def rule_records(self) -> dict:
         return {
@@ -105,18 +99,23 @@ def test_rule_records_route_through_plugin(registered_uwh):
     ids = [r["rule_id"] for r in _rule_records("underwater_hockey")]
     assert ids == ["PUCK_ADVANCE"]
 
-def test_retrieval_boost_routes_through_plugin(registered_uwh):
-    from services.ai_analyzer import _retrieve_rules
-    rules = _retrieve_rules("puck advance push stick", {"summary": "puck pushed"}, "underwater_hockey")
-    assert rules and rules[0]["rule_id"] == "PUCK_ADVANCE"
+def test_full_corpus_injected_into_adjudicator_prompt(registered_uwh):
+    # The plugin's entire rule corpus is injected into the adjudicator prompt
+    # (no retrieval stage) — a self-contained sport needs no other wiring.
+    from services.ai_analyzer import _rule_records, _build_adjudicator_prompt
+    rules = list(_rule_records("underwater_hockey"))
+    prompt = _build_adjudicator_prompt(
+        perception={"summary": "puck pushed"}, rules=rules, original_call="advance"
+    )
+    assert "PUCK_ADVANCE" in prompt
+    assert "advancing the puck" in prompt
 
 def test_perception_prompt_routes_through_plugin(registered_uwh):
     from services.analysis.prompts import _get_perception_prompt
     assert "UWH PERCEPTION PROMPT" in _get_perception_prompt("underwater_hockey")
 
-def test_retrieval_and_adjudicator_prompts_route_through_plugin(registered_uwh):
-    from services.analysis.prompts import _get_retrieval_prompt, _get_adjudicator_prompt
-    assert _get_retrieval_prompt("underwater_hockey") == "UWH RETRIEVAL PROMPT"
+def test_adjudicator_prompt_routes_through_plugin(registered_uwh):
+    from services.analysis.prompts import _get_adjudicator_prompt
     assert _get_adjudicator_prompt("underwater_hockey") == "UWH ADJUDICATOR PROMPT"
 
 def test_extractor_routes_through_plugin(registered_uwh):

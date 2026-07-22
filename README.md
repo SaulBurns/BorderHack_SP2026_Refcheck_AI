@@ -3,10 +3,11 @@
 **Upload a sports clip + the call the ref made → get a verdict (fair / bad /
 inconclusive) with confidence, the cited rule, and the reasoning behind it.**
 
-RefCheck AI is a **four-agent AI pipeline** for reviewing officiating calls: it *sees*
-the play, *looks up* the relevant rule, has **two independent adjudicators** argue it
-from opposite biases, then **reconciles** them into a final verdict. It runs on
-**Anthropic, Gemini, or fully offline** — switching is a single environment variable.
+RefCheck AI is a **three-agent AI pipeline** for reviewing officiating calls: it *sees*
+the play, then has **two independent adjudicators** argue it from opposite biases —
+each handed the sport's **complete rulebook** — before **reconciling** them into a final
+verdict. It runs on **Anthropic, Gemini, or fully offline** — switching is a single
+environment variable.
 
 ### 🏀 For judges — start here
 
@@ -26,7 +27,7 @@ python scripts/run_demo_suite.py            # 10 curated scenarios → metrics r
 ### Stack
 
 - Frontend: Next.js 15 (App Router) — Verdict screen with an **AI reasoning overlay**
-- Backend: FastAPI — synchronous four-agent pipeline off the event loop
+- Backend: FastAPI — synchronous three-agent pipeline off the event loop
 - Sports are **plugins** (`backend/sports/`): each sport owns its prompts, rules, tracking, and game context behind a `Sport` interface; the pipeline never checks `sport == "basketball"`. **Basketball**, **soccer** (Sprint 10), **hockey** (Sprint 11), and **lacrosse** (Sprint 12) all ship as full plugins; any unregistered sport falls back to a generic Claude-only plugin. Adding a sport = one plugin package + one registry line.
 - Analysis: ffmpeg frame extraction + provider-agnostic Claude/Gemini pipeline with mock fallback + optional YOLO tracking
 - Evaluation: offline benchmarking harness (accuracy/precision/recall/F1, calibration, latency, provider comparison)
@@ -35,20 +36,21 @@ python scripts/run_demo_suite.py            # 10 curated scenarios → metrics r
 Supported providers (switching is a single env change — no code changes):
 
 - `AI_PROVIDER=mock` for local demos without paid keys
-- `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` for the real four-agent pipeline
+- `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` for the real three-agent pipeline
 - `AI_PROVIDER=gemini` with `GEMINI_API_KEY` to run the same pipeline on Google Gemini
 
 Any other value fails loudly at request time instead of silently degrading. See
 [CLAUDE.md](CLAUDE.md#ai-provider-abstraction) for the provider architecture and
 how to add a new provider.
 
-The four agents are:
+The three agents are:
 
 1. Perception Agent: watches extracted frames and produces structured observation JSON.
-2. Retrieval Agent: converts the observation into a precise rulebook query.
-3. Adjudicator A: conservative reviewer that gives the original call benefit of the doubt.
-4. Adjudicator B: skeptical reviewer that independently challenges the original call.
+2. Adjudicator A: conservative reviewer that gives the original call benefit of the doubt.
+3. Adjudicator B: skeptical reviewer that independently challenges the original call.
 
+Both adjudicators receive the sport's **complete rule corpus** directly in their prompt
+(the corpora are small — 6-9 rules per sport — so there is no separate retrieval step).
 The backend reconciles both adjudicators into the final verdict.
 
 ## First-Time Setup
@@ -76,7 +78,7 @@ Then copy the backend env example:
 cp .env.example .env
 ```
 
-Keep `AI_PROVIDER=mock` for free local testing. To use the real four-agent pipeline,
+Keep `AI_PROVIDER=mock` for free local testing. To use the real three-agent pipeline,
 pick one provider — **switching providers only requires changing environment variables**:
 
 ```bash
@@ -93,7 +95,7 @@ GEMINI_MODEL=gemini-2.5-flash     # optional; default: gemini-2.5-flash
 GEMINI_API_KEY=your_key
 ```
 
-The four-agent pipeline is identical across providers — only the model backend changes.
+The three-agent pipeline is identical across providers — only the model backend changes.
 
 ### Frontend
 
@@ -337,16 +339,15 @@ http://localhost:8000/api/analyze
 4. Backend saves the uploaded clip temporarily.
 5. Backend extracts representative frames with `ffmpeg`.
 6. Perception Agent describes what happened without making a ruling.
-7. Retrieval Agent writes a rulebook-style query.
-8. Backend retrieves the most relevant basketball rule snippets.
-9. Conservative and Skeptical Adjudicator Agents independently rule on the play.
-10. Backend reconciles the two adjudicators into one final verdict.
-11. If AI is unavailable, the mock analyzer returns a demo-safe verdict.
-12. Backend returns a verdict:
+7. Backend loads the sport's complete rule corpus and injects it into both adjudicators.
+8. Conservative and Skeptical Adjudicator Agents independently rule on the play.
+9. Backend reconciles the two adjudicators into one final verdict.
+10. If AI is unavailable, the mock analyzer returns a demo-safe verdict.
+11. Backend returns a verdict:
    - Fair Call
    - Bad Call
    - Inconclusive
-13. Frontend displays confidence, cited rule, reasoning, perception details, and adjudicator results.
+12. Frontend displays confidence, cited rule, reasoning, perception details, and adjudicator results.
 
 ## Sponsor Demo Suite
 

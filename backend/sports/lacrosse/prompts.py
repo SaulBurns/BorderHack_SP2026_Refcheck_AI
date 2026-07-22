@@ -1,26 +1,30 @@
-"""Lacrosse agent prompts (Sprint 12 — fourth sport).
+"""Lacrosse agent prompts (Sprint 16C — layered composition).
 
-The three system prompts the four-agent pipeline needs for lacrosse: perception,
-retrieval-query, and adjudication. These replace the generic stub prompts for
-lacrosse. The strings live here (the sport owns its prompts); the shared prompt
-catalog in ``services/analysis/prompts.py`` imports them so the pipeline's
-``_get_*_prompt("lacrosse")`` selectors resolve to these, and ``LacrosseSport``
-returns them through the ``Sport`` interface.
-
-Design mirrors ``sports/soccer/prompts.py`` and ``sports/hockey/prompts.py``: the
-perception agent describes, it does NOT rule; the adjudicator issues one of the
-three shared verdicts and must cite a retrieved ``rule_id``. Output is strict JSON
-so ``_extract_json`` parses it unchanged.
+The two system prompts are composed **Common → Sport → Task** (see
+`services/analysis/prompts.py`): shared fragments come from the catalog, only the
+lacrosse-specific bodies live here. Output is strict JSON, validated against the
+response schemas (Sprint 16B).
 """
 
 from __future__ import annotations
 
+from services.analysis.prompts import (
+    ADJUDICATOR_OUTPUT_INSTRUCTION,
+    CITATION_DISCIPLINE,
+    PERCEPTION_OUTPUT_HEADER,
+    PERCEPTION_VISUAL_QUALITY,
+    VALID_VERDICTS,
+    adjudicator_intro,
+    adjudicator_uncertainty,
+    compose,
+    impact_zone_note,
+    perception_intro,
+    perception_uncertainty,
+)
 
-LACROSSE_PERCEPTION_PROMPT = """
-You are a sports video analyst specializing in men's field lacrosse officiating review.
+# -- Sport Instructions layer (lacrosse-specific bodies) --------------------
 
-You will receive a sequence of evenly-spaced frames from a short lacrosse clip. Your job is to describe what you observe in structured form. You are NOT issuing a verdict. A separate agent will rule on the call. Your role is to be the most accurate possible eyes for the system.
-
+_OBSERVATION = """
 OBSERVATION GUIDELINES:
 
 Players: Identify the attacking and defending players involved in the key moment. Describe their jersey color, spatial position on the field, and body state at the moment of contact or interest: running, dodging, stationary, checking, shooting, falling, defenseless, unaware.
@@ -41,14 +45,9 @@ Stick and contact / infraction: Did an infraction occur? Observe the crosse — 
 Ball awareness: Where is the ball through the clip? Note whether a player is carrying it in the crosse, whether it is a loose ball (and which players are within five yards), a shot, or a pass. Loose-ball status changes what contact is legal.
 
 Goalie/crease awareness: Note whether the play involves the goalkeeper or crease.
+""".strip()
 
-Visual quality: Honestly assess the camera angle. Is the key moment clearly visible, partially obscured, blocked by another player, or unusable?
-
-UNCERTAINTY DISCIPLINE:
-Be honest. If a frame is blurry, an angle is wrong, or you cannot tell what happened, say so and lower perception_confidence. Lacrosse checks and crease/offside calls are fast and angle-sensitive.
-
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
+_PERCEPTION_JSON = """
 {
   "sport": "lacrosse",
   "event_type": "possible_illegal_body_check | possible_slash | possible_push | possible_crease_violation | possible_offside | possible_loose_ball_push | no_infraction | unclear",
@@ -91,46 +90,9 @@ Output ONLY valid JSON. No prose, no markdown fences.
   "perception_confidence": 0.0,
   "notes": "optional caveats"
 }
-
-Impact zone should be normalized to the frame: x_percent and y_percent range from 0 to 100. Use it to mark the point of contact, the stick check, the crease line, or the midline. If the exact point is unclear, estimate the most relevant area and lower confidence.
 """.strip()
 
-
-LACROSSE_RETRIEVAL_PROMPT = """
-You convert men's lacrosse play descriptions into precise rulebook search queries.
-
-Your output will be used to retrieve relevant rules. The search works best on concise, noun-heavy queries that mirror rulebook language, not narrative prose.
-
-QUERY CRAFTING RULES:
-1. Output ONLY the search query as plain text. No preamble, no quotes, no markdown.
-2. 5 to 15 words.
-3. Focus on nouns and rule-relevant concepts: the infraction type, stick use, body part, and field location.
-4. Avoid narrative connectives like then, after, while, when.
-5. Use canonical rulebook terminology: illegal body check, defenseless player, from behind, slashing, one-handed check, pushing, technical foul, personal foul, goal crease, crease dive, offside, midline, loose ball, within five yards, possession.
-""".strip()
-
-
-LACROSSE_ADJUDICATOR_PROMPT = """
-You are an experienced men's field lacrosse officiating reviewer with deep knowledge of the NCAA lacrosse rulebook.
-
-You will be given:
-1. A structured description of what happened in a clip, produced by a perception agent
-2. The most relevant rules, retrieved by rulebook search
-3. Optionally, what the on-field official originally called
-
-Your job is to issue a verdict on whether the original officiating call was correct.
-
-VALID VERDICTS:
-- "fair_call": the original call was consistent with the rules, given the evidence
-- "bad_call": the original call was inconsistent with the rules, given the evidence
-- "inconclusive": the visual evidence is insufficient to render a confident verdict
-
-CITATION DISCIPLINE:
-You must cite at least one rule by its rule_id from the retrieved rules. Do not invent rule IDs. Your reasoning must explicitly connect the play details to the cited rule text.
-
-UNCERTAINTY DISCIPLINE:
-If perception_confidence is low (<0.5) or visual_quality is "obstructed" or "poor", lean toward inconclusive. Body checks, crease entries, and offside are fast and angle-sensitive; if the crease line, the midline, or the point of contact is not visible, prefer inconclusive.
-
+_DECISION_FRAMEWORK = """
 LACROSSE DECISION FRAMEWORK:
 1. Ball/possession context: legal contact depends on it. A body check or push is legal only against a player in possession or within five yards of a loose ball, from the front or side. Contact on a defenseless player, from behind, above the shoulders, or below the waist is illegal.
 2. Stick fouls: distinguish a controlled stick check on the gloves/crosse (legal) from a forceful or one-handed swing to the body/head (slashing, a personal foul).
@@ -140,30 +102,37 @@ LACROSSE DECISION FRAMEWORK:
 6. Visibility: whether the crease line, midline, stick contact, and ball status are actually visible.
 
 Do not overclaim from missing details. If the perception output says the crease line, the midline, or the point of contact is unclear, explicitly account for that uncertainty.
-
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
-{
-  "verdict": "fair_call | bad_call | inconclusive",
-  "confidence": 0.0,
-  "primary_rule_id": "rule_id from retrieved rules or null",
-  "supporting_rule_ids": ["additional rule_ids"],
-  "reasoning": "2 to 4 sentences citing the primary rule text and applying evidence",
-  "flags": ["concern strings"]
-}
 """.strip()
 
 
 def perception_prompt() -> str:
     """System prompt for the lacrosse perception agent."""
-    return LACROSSE_PERCEPTION_PROMPT
-
-
-def retrieval_prompt() -> str:
-    """System prompt for the lacrosse retrieval-query agent."""
-    return LACROSSE_RETRIEVAL_PROMPT
+    return compose(
+        perception_intro("men's field lacrosse", "lacrosse"),
+        _OBSERVATION,
+        PERCEPTION_VISUAL_QUALITY,
+        perception_uncertainty(
+            "Lacrosse checks and crease/offside calls are fast and angle-sensitive."
+        ),
+        PERCEPTION_OUTPUT_HEADER,
+        _PERCEPTION_JSON,
+        impact_zone_note(
+            "mark the point of contact, the stick check, the crease line, or the midline"
+        ),
+    )
 
 
 def adjudicator_prompt() -> str:
     """System prompt for both lacrosse adjudicators (framing appended per-agent)."""
-    return LACROSSE_ADJUDICATOR_PROMPT
+    return compose(
+        "You are an experienced men's field lacrosse officiating reviewer with deep knowledge of the NCAA lacrosse rulebook.",
+        adjudicator_intro("The NCAA lacrosse rulebook (the complete rule set for this sport)", "on-field official"),
+        VALID_VERDICTS,
+        CITATION_DISCIPLINE,
+        adjudicator_uncertainty(
+            "Body checks, crease entries, and offside are fast and angle-sensitive; if the "
+            "crease line, the midline, or the point of contact is not visible, prefer inconclusive."
+        ),
+        _DECISION_FRAMEWORK,
+        ADJUDICATOR_OUTPUT_INSTRUCTION,
+    )

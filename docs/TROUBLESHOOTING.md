@@ -24,7 +24,8 @@ Every `/api/analyze` response includes a `diagnostics` block:
 - `provider_used: "mock"` + a `fallback_reason` → the real pipeline **did not** run;
   the reason string says why (missing key, missing ffmpeg, `AI_PROVIDER=mock`, …).
 - `provider_used: "anthropic_four_agent"` and `fallback_reason: null` → the real
-  four-agent pipeline ran.
+  pipeline ran. (The `anthropic_four_agent` tag is a retained backward-compatible
+  value; the live pipeline is three agents since Sprint 16A.)
 
 The `scripts/demo_analyze.py` CLI prints this decisively (`REAL PIPELINE RAN: YES/NO`)
 and has a `--strict-real` mode that exits nonzero instead of silently degrading.
