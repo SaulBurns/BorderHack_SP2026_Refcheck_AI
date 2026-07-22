@@ -15,6 +15,12 @@ import os
 from pathlib import Path
 
 from services import config
+from services.ai.errors import (
+    PermanentProviderError,
+    ProviderError,
+    TransientProviderError,
+    classify_http_status,
+)
 from services.ai.provider import AIProvider, MessageContent, normalize_content
 
 # Re-exported for backward compatibility; canonical default lives in config.
@@ -26,6 +32,9 @@ class GeminiProvider(AIProvider):
 
     def provider_name(self) -> str:
         return "gemini"
+
+    def model_name(self) -> str:
+        return os.getenv(config.GEMINI_MODEL_ENV) or DEFAULT_MODEL
 
     def supports_vision(self) -> bool:
         return True
@@ -41,26 +50,48 @@ class GeminiProvider(AIProvider):
     ) -> str:
         api_key = os.getenv(config.GEMINI_API_KEY_ENV)
         if not api_key:
-            raise RuntimeError("GEMINI_API_KEY is not set")
+            # Auth/config error — never retry.
+            raise PermanentProviderError("GEMINI_API_KEY is not set", provider="gemini")
 
         genai, types = self._load_sdk()
         client = genai.Client(api_key=api_key)
         model = os.getenv(config.GEMINI_MODEL_ENV) or DEFAULT_MODEL
 
-        response = client.models.generate_content(
-            model=model,
-            contents=self._parts(types, user_content),
-            config=types.GenerateContentConfig(
-                **self.generation_kwargs(
-                    system_prompt=system_prompt,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    json_mode=config.env_flag(config.GEMINI_JSON_MODE_ENV),
-                    response_schema=response_schema,
-                )
-            ),
-        )
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=self._parts(types, user_content),
+                config=types.GenerateContentConfig(
+                    **self.generation_kwargs(
+                        system_prompt=system_prompt,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        json_mode=config.env_flag(config.GEMINI_JSON_MODE_ENV),
+                        response_schema=response_schema,
+                    )
+                ),
+            )
+        except ProviderError:
+            raise
+        except Exception as exc:  # SDK/network error — classify for the retry layer
+            raise self._classify_error(exc) from exc
         return response.text or ""
+
+    @staticmethod
+    def _classify_error(exc: Exception) -> ProviderError:
+        """Map a Gemini SDK/network exception to a transient/permanent provider error.
+
+        The `google-genai` SDK raises `APIError` subclasses carrying an HTTP status
+        (`.code`); connection/timeout/5xx errors are transient, 4xx (auth/bad request)
+        are permanent. Unknown errors are treated as permanent (never retried).
+        """
+        status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+        if isinstance(status, int):
+            return classify_http_status(status, f"Gemini API error {status}: {exc}", provider="gemini")
+        name = type(exc).__name__.lower()
+        if any(key in name for key in ("timeout", "connection", "servererror", "unavailable")):
+            return TransientProviderError(f"Gemini request failed: {exc}", provider="gemini")
+        return PermanentProviderError(f"Gemini request failed ({type(exc).__name__}): {exc}", provider="gemini")
 
     # -- request building ---------------------------------------------------
 
@@ -120,8 +151,9 @@ class GeminiProvider(AIProvider):
             from google import genai
             from google.genai import types
         except ImportError as exc:  # pragma: no cover - exercised only when selected
-            raise RuntimeError(
+            raise PermanentProviderError(
                 "The 'google-genai' package is required for AI_PROVIDER=gemini. "
-                "Install it (pip install google-genai) to use the Gemini provider."
+                "Install it (pip install google-genai) to use the Gemini provider.",
+                provider="gemini",
             ) from exc
         return genai, types

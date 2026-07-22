@@ -26,6 +26,7 @@ from services.analysis.prompts import (
 )
 from services.analysis.rule_corpus import _rule_records, _rules_text
 from services.analysis.response_models import AdjudicatorResponse, PerceptionResponse
+from services.ai.reliability import call_with_retry
 from pydantic import BaseModel, ValidationError
 from services.detectors import RawDetections, get_detector
 from services.extractors import get_extractor
@@ -197,13 +198,24 @@ def _send_messages(
     mock) is resolved by the factory from AI_PROVIDER. No provider-specific code
     lives here. `response_schema` (Sprint 16B) is forwarded so the provider can
     request native structured output.
+
+    Sprint 16D — transport reliability: the single provider call is wrapped in
+    `call_with_retry`, which retries **transient** failures (429/5xx/timeout/dropped
+    connection) with exponential backoff and records provider-comms health. Auth /
+    bad-request errors are permanent and raised immediately; validation failures are
+    handled a layer up in `_send_validated`, so they are never transport-retried.
     """
-    return _active_provider().send_messages(
-        system_prompt=system_prompt,
-        user_content=user_content,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        response_schema=response_schema,
+    provider = _active_provider()
+    return call_with_retry(
+        lambda: provider.send_messages(
+            system_prompt=system_prompt,
+            user_content=user_content,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_schema=response_schema,
+        ),
+        provider=provider.provider_name(),
+        model=provider.model_name(),
     )
 
 

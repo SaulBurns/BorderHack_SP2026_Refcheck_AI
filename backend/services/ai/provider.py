@@ -87,6 +87,15 @@ class AIProvider(ABC):
     def provider_name(self) -> str:
         """Stable identifier (e.g. "anthropic", "gemini", "mock")."""
 
+    def model_name(self) -> str:
+        """Resolved model id for diagnostics (Sprint 16D).
+
+        Real providers override this to report the concrete model they will call;
+        the default (the provider name) keeps mock/bench/test providers working
+        without changes.
+        """
+        return self.provider_name()
+
     @property
     def is_mock(self) -> bool:
         """True only for the mock demo provider.
