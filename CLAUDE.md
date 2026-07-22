@@ -103,7 +103,7 @@ sports/
   generic.py      # GenericSport — empty/stub defaults for any UNREGISTERED sport string
   basketball/  soccer/  hockey/  lacrosse/     # four full implementations, identical layout:
     sport.py         # <Sport>Sport wiring (implements the whole Sport interface)
-    prompts.py       # perception/adjudicator prompt strings (incl. basketball)
+    prompts.py       # sport-specific prompt bodies, composed with the shared Common fragments (Sprint 16C)
     tracking.py      # tracked-evidence layer (soccer/hockey/lacrosse; basketball uses basketball_vision)
     extractor.py     # <Sport>DetailExtractor -> <Sport>Details (basketball's is services/extractors/basketball.py)
     game_context.py  # metadata-provider seam (basketball -> NBA provider; others None)
@@ -133,7 +133,7 @@ sports/
 
 `ai_analyzer.py` was ~1500 lines; its concerns were split into a package, leaving `ai_analyzer` as the orchestrator (~700 lines). Every name is re-imported into `ai_analyzer`, so `from services.ai_analyzer import ...` and `monkeypatch.setattr(ai, ...)` seams are unchanged.
 
-- `prompts.py` — shared reasoning framings, generic stub-prompt builders, and the `_get_*_prompt(sport)` selectors that now **delegate to `get_sport(sport).*_prompt()`** (each sport's prompt strings live in `sports/<sport>/prompts.py`).
+- `prompts.py` — the shared **Common layer** of the prompt composition (Sprint 16C): `compose(*parts)` plus the reusable fragments every prompt shares (`perception_intro`, `PERCEPTION_VISUAL_QUALITY`, `PERCEPTION_OUTPUT_HEADER`, `perception_uncertainty`, `impact_zone_note`; `adjudicator_intro`, `VALID_VERDICTS`, `CITATION_DISCIPLINE`, `adjudicator_uncertainty`, `ADJUDICATOR_OUTPUT_INSTRUCTION`), the conservative/skeptical **Task-layer** framings, the generic stub builders (which compose the same fragments), and the `_get_*_prompt(sport)` selectors that **delegate to `get_sport(sport).*_prompt()`**. Each sport's plugin composes **Common → Sport → Task**: `sports/<sport>/prompts.py` holds only the sport-specific bodies (observation guidelines, perception JSON body, decision framework, rulebook/official names). Post-16B the adjudicator's verbose inline verdict-JSON block was collapsed into the one-line `ADJUDICATOR_OUTPUT_INSTRUCTION` (the schema is enforced by Pydantic), reducing per-request tokens; the four sport prompt files shrank ~18%.
 - `frames.py` — `FRAME_DIR`, ffprobe/ffmpeg frame extraction + on-disk cache.
 - `rule_corpus.py` — the sport rule corpus: `_rule_records(sport)` (full corpus, `@lru_cache`d) + `_rules_text(rules)` (renders it for the adjudicator prompt). Formerly `retrieval.py`; Sprint 16A dropped the keyword ranking.
 - `mock_result.py` — the canned, network-free demo result.

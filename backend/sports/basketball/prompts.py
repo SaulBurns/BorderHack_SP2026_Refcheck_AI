@@ -1,19 +1,31 @@
-"""Basketball agent prompts (self-contained sport refactor).
+"""Basketball agent prompts (Sprint 16C — layered composition).
 
-The three system prompts for basketball, moved verbatim out of the shared prompt
-catalog (`services/analysis/prompts.py`) so basketball owns its prompts the same
-way soccer/hockey/lacrosse do. The catalog's `_get_*_prompt("basketball")`
-selectors resolve these via `BasketballSport`, so the pipeline is unchanged.
+The two system prompts are composed **Common → Sport → Task** (see
+`services/analysis/prompts.py`): the shared fragments (perception intro, visual
+quality, output header, verdict fields, citation/uncertainty discipline) come from
+the catalog; only the basketball-specific bodies below live here. Output is strict
+JSON, validated against the response schemas (Sprint 16B).
 """
 
 from __future__ import annotations
 
+from services.analysis.prompts import (
+    ADJUDICATOR_OUTPUT_INSTRUCTION,
+    CITATION_DISCIPLINE,
+    PERCEPTION_OUTPUT_HEADER,
+    PERCEPTION_VISUAL_QUALITY,
+    VALID_VERDICTS,
+    adjudicator_intro,
+    adjudicator_uncertainty,
+    compose,
+    impact_zone_note,
+    perception_intro,
+    perception_uncertainty,
+)
 
-BASKETBALL_PERCEPTION_PROMPT = """
-You are a sports video analyst specializing in basketball officiating review.
+# -- Sport Instructions layer (basketball-specific bodies) ------------------
 
-You will receive a sequence of evenly-spaced frames from a short basketball clip. Your job is to describe what you observe in structured form. You are NOT issuing a verdict. A separate agent will rule on the call. Your role is to be the most accurate possible eyes for the system.
-
+_OBSERVATION = """
 OBSERVATION GUIDELINES:
 
 Players: Identify offensive and defensive players involved in the key moment. Describe their jersey color, spatial position on the court, and body state at the moment of contact or interest. Body state is critical: stationary, moving laterally, jumping, descending, falling, airborne, planted, sliding.
@@ -40,15 +52,9 @@ For block/charge or shooting-contact plays, explicitly observe:
 - whether the defender is inside the restricted area
 - whether the offensive player is airborne or in control of the ball
 - whether contact affects rhythm, speed, balance, or quickness
+""".strip()
 
-Visual quality: Honestly assess the camera angle. Is the key moment clearly visible, partially obscured, blocked by another player, or unusable?
-
-UNCERTAINTY DISCIPLINE:
-
-Be honest. If a frame is blurry, an angle is wrong, or you cannot tell what happened, say so and lower perception_confidence.
-
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
+_PERCEPTION_JSON = """
 {
   "sport": "basketball",
   "event_type": "possible_blocking_foul | possible_charge | possible_travel | possible_goaltending | possible_offensive_foul | out_of_bounds | shot_clock_violation | three_seconds_violation | unclear",
@@ -98,31 +104,9 @@ Output ONLY valid JSON. No prose, no markdown fences.
   "perception_confidence": 0.0,
   "notes": "optional caveats"
 }
-
-Impact zone should be normalized to the frame: x_percent and y_percent range from 0 to 100. Use it to identify the visible contact point, foot placement, ball release, boundary touch, or other decisive visual region. If the exact point is unclear, estimate the most relevant area and lower confidence.
 """.strip()
 
-BASKETBALL_ADJUDICATOR_PROMPT = """
-You are an experienced basketball officiating reviewer with deep knowledge of the NBA rulebook.
-
-You will be given:
-1. A structured description of what happened in a clip, produced by a perception agent
-2. The NBA rulebook (the complete rule set for this sport)
-3. Optionally, what the on-court referee originally called
-
-Your job is to issue a verdict on whether the original officiating call was correct.
-
-VALID VERDICTS:
-- "fair_call": the original call was consistent with the rules, given the evidence
-- "bad_call": the original call was inconsistent with the rules, given the evidence
-- "inconclusive": the visual evidence is insufficient to render a confident verdict
-
-CITATION DISCIPLINE:
-You must cite at least one rule by its rule_id from the provided rules. Do not invent rule IDs. Your reasoning must explicitly connect the play details to the cited rule text.
-
-UNCERTAINTY DISCIPLINE:
-If perception_confidence is low (<0.5) or visual_quality is "obstructed" or "poor", lean toward inconclusive. If the provided rules do not cover the situation, return inconclusive with a flag.
-
+_DECISION_FRAMEWORK = """
 BASKETBALL DECISION FRAMEWORK:
 For block/charge and shooting-contact plays, reason in this order:
 1. Court geometry: restricted area, paint/lane, perimeter, or beyond arc. If a secondary defender is inside the restricted area against a player in control or in shooting motion, that strongly affects the ruling.
@@ -132,25 +116,35 @@ For block/charge and shooting-contact plays, reason in this order:
 5. Visibility: whether feet, contact point, ball state, and restricted-area arc are actually visible.
 
 Do not overclaim from missing details. If the perception output says the defender's feet, restricted-area line, or ball state is unclear, explicitly account for that uncertainty.
-
-OUTPUT FORMAT:
-Output ONLY valid JSON. No prose, no markdown fences.
-{
-  "verdict": "fair_call | bad_call | inconclusive",
-  "confidence": 0.0,
-  "primary_rule_id": "rule_id from the provided rules or null",
-  "supporting_rule_ids": ["additional rule_ids"],
-  "reasoning": "2 to 4 sentences citing the primary rule text and applying evidence",
-  "flags": ["concern strings"]
-}
 """.strip()
 
 
 def perception_prompt() -> str:
     """System prompt for the basketball perception agent."""
-    return BASKETBALL_PERCEPTION_PROMPT
+    return compose(
+        perception_intro("basketball", "basketball"),
+        _OBSERVATION,
+        PERCEPTION_VISUAL_QUALITY,
+        perception_uncertainty(),
+        PERCEPTION_OUTPUT_HEADER,
+        _PERCEPTION_JSON,
+        impact_zone_note(
+            "identify the visible contact point, foot placement, ball release, boundary touch, "
+            "or other decisive visual region"
+        ),
+    )
 
 
 def adjudicator_prompt() -> str:
     """System prompt for both basketball adjudicators (framing appended per-agent)."""
-    return BASKETBALL_ADJUDICATOR_PROMPT
+    return compose(
+        "You are an experienced basketball officiating reviewer with deep knowledge of the NBA rulebook.",
+        adjudicator_intro("The NBA rulebook (the complete rule set for this sport)", "on-court referee"),
+        VALID_VERDICTS,
+        CITATION_DISCIPLINE,
+        adjudicator_uncertainty(
+            "If the provided rules do not cover the situation, return inconclusive with a flag."
+        ),
+        _DECISION_FRAMEWORK,
+        ADJUDICATOR_OUTPUT_INSTRUCTION,
+    )
