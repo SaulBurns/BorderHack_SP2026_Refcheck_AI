@@ -66,6 +66,26 @@ DEFAULT_PROVIDER_BACKOFF_BASE_SECONDS = 0.5
 DEFAULT_PROVIDER_BACKOFF_MAX_SECONDS = 8.0
 DEFAULT_PROVIDER_TIMEOUT_SECONDS = 90.0
 
+# Sprint 17A — provider router. With AI_PROVIDER=router, each pipeline task selects
+# its own provider: perception (vision-heavy) and adjudication (text reasoning) can
+# use different backends. Each task env falls back to ROUTER_DEFAULT_PROVIDER, which
+# defaults to "anthropic" — so AI_PROVIDER=router behaves like anthropic out of the box.
+ROUTER_DEFAULT_PROVIDER_ENV = "ROUTER_DEFAULT_PROVIDER"
+ROUTER_PERCEPTION_PROVIDER_ENV = "ROUTER_PERCEPTION_PROVIDER"
+ROUTER_ADJUDICATION_PROVIDER_ENV = "ROUTER_ADJUDICATION_PROVIDER"
+
+DEFAULT_ROUTER_PROVIDER = "anthropic"
+
+# Task identifiers the pipeline routes on (also passed to `route()`).
+TASK_PERCEPTION = "perception"
+TASK_ADJUDICATION = "adjudication"
+
+# task -> the env var naming its provider.
+_ROUTER_TASK_ENV = {
+    TASK_PERCEPTION: ROUTER_PERCEPTION_PROVIDER_ENV,
+    TASK_ADJUDICATION: ROUTER_ADJUDICATION_PROVIDER_ENV,
+}
+
 SUPABASE_URL_ENV = "SUPABASE_URL"
 SUPABASE_SERVICE_ROLE_KEY_ENV = "SUPABASE_SERVICE_ROLE_KEY"
 SUPABASE_CLIPS_BUCKET_ENV = "SUPABASE_CLIPS_BUCKET"
@@ -100,6 +120,22 @@ def resolved_provider(explicit: str | None = None) -> str:
 def resolved_detector(explicit: str | None = None) -> str:
     """Detector key from an explicit arg, else DETECTOR, else the default."""
     return (explicit or os.getenv(DETECTOR_ENV) or DEFAULT_DETECTOR).strip().lower()
+
+
+def router_default_provider() -> str:
+    """The provider a router task falls back to (default "anthropic")."""
+    return (os.getenv(ROUTER_DEFAULT_PROVIDER_ENV) or DEFAULT_ROUTER_PROVIDER).strip().lower()
+
+
+def router_provider_for(task: str | None) -> str:
+    """Provider name the router should use for `task`.
+
+    Reads the task's env var (ROUTER_PERCEPTION_PROVIDER / ROUTER_ADJUDICATION_PROVIDER),
+    falling back to ROUTER_DEFAULT_PROVIDER for an unset var or an unknown task.
+    """
+    env = _ROUTER_TASK_ENV.get((task or "").strip().lower())
+    value = os.getenv(env) if env else None
+    return (value or router_default_provider()).strip().lower()
 
 
 def env_flag(name: str, default: bool = False) -> bool:

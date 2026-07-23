@@ -191,21 +191,28 @@ def _send_messages(
     temperature: float,
     max_tokens: int = 1200,
     response_schema: dict | None = None,
+    task: str | None = None,
 ) -> str:
     """Send one turn through the active AI provider and return its raw text.
 
     The pipeline calls only this seam; which provider answers (Anthropic, Gemini,
-    mock) is resolved by the factory from AI_PROVIDER. No provider-specific code
-    lives here. `response_schema` (Sprint 16B) is forwarded so the provider can
-    request native structured output.
+    mock, or a router-selected delegate) is resolved by the factory from AI_PROVIDER.
+    No provider-specific code lives here. `response_schema` (Sprint 16B) is forwarded
+    so the provider can request native structured output.
 
-    Sprint 16D — transport reliability: the single provider call is wrapped in
+    Sprint 17A — provider router: `task` ("perception"/"adjudication") is resolved to
+    a concrete delegate via `provider.route(task)` (a no-op returning the same provider
+    unless `AI_PROVIDER=router`). The delegate is what's wrapped in `call_with_retry`,
+    so single-provider behavior is unchanged and, under routing, the reliability
+    diagnostics report the real provider+model that ran — never "router".
+
+    Sprint 16D — transport reliability: the provider call is wrapped in
     `call_with_retry`, which retries **transient** failures (429/5xx/timeout/dropped
     connection) with exponential backoff and records provider-comms health. Auth /
     bad-request errors are permanent and raised immediately; validation failures are
     handled a layer up in `_send_validated`, so they are never transport-retried.
     """
-    provider = _active_provider()
+    provider = _active_provider().route(task)
     return call_with_retry(
         lambda: provider.send_messages(
             system_prompt=system_prompt,
@@ -241,6 +248,8 @@ def _send_validated(
     every downstream reader and the `/api/analyze` response are unchanged.
     """
     schema = model_cls.model_json_schema()
+    # The model class is the task signal the router (Sprint 17A) selects on.
+    task = config.TASK_PERCEPTION if model_cls is PerceptionResponse else config.TASK_ADJUDICATION
     attempts = (retries if retries is not None else _structured_retries()) + 1
     content = user_content
     last_error: ValidationError | None = None
@@ -251,6 +260,7 @@ def _send_validated(
             temperature=temperature,
             max_tokens=max_tokens,
             response_schema=schema,
+            task=task,
         )
         try:
             return model_cls.model_validate_json(raw).model_dump()

@@ -51,21 +51,33 @@ def liveness() -> dict:
     }
 
 
-def _check_provider() -> dict:
-    provider = config.resolved_provider()
+def _provider_key_status(provider: str) -> tuple[bool, str]:
+    """Whether the provider's API key is present (True for the keyless mock)."""
     if provider == "mock":
-        return {"ok": True, "detail": "mock provider (no key required)"}
+        return True, "no key required"
     key_env = {
         "anthropic": config.ANTHROPIC_API_KEY_ENV,
         "gemini": config.GEMINI_API_KEY_ENV,
     }.get(provider)
     if key_env is None:
-        return {"ok": False, "detail": f"unknown provider {provider!r}"}
+        return False, "unknown provider"
     has_key = bool(os.getenv(key_env))
-    return {
-        "ok": has_key,
-        "detail": f"{provider}: {'API key present' if has_key else 'API key missing (will degrade to mock)'}",
-    }
+    return has_key, "API key present" if has_key else "API key missing (will degrade to mock)"
+
+
+def _check_provider() -> dict:
+    provider = config.resolved_provider()
+    if provider != "router":
+        ok, detail = _provider_key_status(provider)
+        return {"ok": ok, "detail": f"{provider}: {detail}"}
+    # Router (Sprint 17A): check every per-task delegate's key.
+    routed = {task: config.router_provider_for(task) for task in (config.TASK_PERCEPTION, config.TASK_ADJUDICATION)}
+    parts, ok = [], True
+    for task, name in routed.items():
+        key_ok, detail = _provider_key_status(name)
+        ok = ok and key_ok
+        parts.append(f"{task}→{name} ({detail})")
+    return {"ok": ok, "detail": "router: " + "; ".join(parts)}
 
 
 def _check_ffmpeg() -> dict:

@@ -96,6 +96,16 @@ class AIProvider(ABC):
         """
         return self.provider_name()
 
+    def route(self, task: str | None = None) -> "AIProvider":
+        """Select the concrete provider to use for `task` (Sprint 17A).
+
+        The default returns ``self`` — a single provider is used for every task, so
+        the seam is a no-op. Only `RouterProvider` overrides this to pick a delegate
+        per task, keeping routing entirely out of the `send_messages` contract: no
+        other provider (and no sport code) ever learns routing happened.
+        """
+        return self
+
     @property
     def is_mock(self) -> bool:
         """True only for the mock demo provider.

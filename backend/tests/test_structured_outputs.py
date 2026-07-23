@@ -38,7 +38,7 @@ def _replies(monkeypatch, sequence):
     calls = {"n": 0}
     seq = list(sequence)
 
-    def fake(*, system_prompt, user_content, temperature, max_tokens=1200, response_schema=None):
+    def fake(*, system_prompt, user_content, temperature, max_tokens=1200, response_schema=None, task=None):
         calls["n"] += 1
         item = seq[min(calls["n"] - 1, len(seq) - 1)]
         if isinstance(item, Exception):
