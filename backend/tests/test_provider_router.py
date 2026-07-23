@@ -95,9 +95,16 @@ def test_router_rejects_router_delegate(monkeypatch):
 
 
 def test_describe_routing(monkeypatch):
+    # Legacy ROUTER_* provider vars still resolve; Sprint 17B reports {provider, model}
+    # per task (model is None when no per-task model is pinned).
+    for env in ("PERCEPTION_PROVIDER", "ADJUDICATOR_PROVIDER", "PERCEPTION_MODEL", "ADJUDICATOR_MODEL"):
+        monkeypatch.delenv(env, raising=False)
     monkeypatch.setenv("ROUTER_PERCEPTION_PROVIDER", "gemini")
     monkeypatch.setenv("ROUTER_ADJUDICATION_PROVIDER", "mock")
-    assert RouterProvider().describe_routing() == {"perception": "gemini", "adjudication": "mock"}
+    assert RouterProvider().describe_routing() == {
+        "perception": {"provider": "gemini", "model": None},
+        "adjudication": {"provider": "mock", "model": None},
+    }
 
 
 # ---------------------------------------------------------------------------

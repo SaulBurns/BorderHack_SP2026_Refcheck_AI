@@ -74,16 +74,35 @@ ROUTER_DEFAULT_PROVIDER_ENV = "ROUTER_DEFAULT_PROVIDER"
 ROUTER_PERCEPTION_PROVIDER_ENV = "ROUTER_PERCEPTION_PROVIDER"
 ROUTER_ADJUDICATION_PROVIDER_ENV = "ROUTER_ADJUDICATION_PROVIDER"
 
+# Sprint 17B — per-agent providers AND models. Each pipeline stage can now also pin
+# its own model. The concise, spec-facing names take precedence over the legacy
+# Sprint 17A ROUTER_* provider vars (which stay valid for backward compatibility):
+#   perception   -> PERCEPTION_PROVIDER  + PERCEPTION_MODEL
+#   adjudication -> ADJUDICATOR_PROVIDER + ADJUDICATOR_MODEL
+# A model left unset means "let the resolved provider pick its own model" (its
+# AI_MODEL/GEMINI_MODEL env or built-in default), so out of the box nothing changes.
+PERCEPTION_PROVIDER_ENV = "PERCEPTION_PROVIDER"
+PERCEPTION_MODEL_ENV = "PERCEPTION_MODEL"
+ADJUDICATOR_PROVIDER_ENV = "ADJUDICATOR_PROVIDER"
+ADJUDICATOR_MODEL_ENV = "ADJUDICATOR_MODEL"
+
 DEFAULT_ROUTER_PROVIDER = "anthropic"
 
 # Task identifiers the pipeline routes on (also passed to `route()`).
 TASK_PERCEPTION = "perception"
 TASK_ADJUDICATION = "adjudication"
 
-# task -> the env var naming its provider.
-_ROUTER_TASK_ENV = {
-    TASK_PERCEPTION: ROUTER_PERCEPTION_PROVIDER_ENV,
-    TASK_ADJUDICATION: ROUTER_ADJUDICATION_PROVIDER_ENV,
+# task -> the env vars naming its provider, highest precedence first. The Sprint 17B
+# name wins over the legacy Sprint 17A name; either falls back to ROUTER_DEFAULT_PROVIDER.
+_ROUTER_TASK_PROVIDER_ENVS = {
+    TASK_PERCEPTION: (PERCEPTION_PROVIDER_ENV, ROUTER_PERCEPTION_PROVIDER_ENV),
+    TASK_ADJUDICATION: (ADJUDICATOR_PROVIDER_ENV, ROUTER_ADJUDICATION_PROVIDER_ENV),
+}
+
+# task -> the env var naming its model (Sprint 17B).
+_ROUTER_TASK_MODEL_ENV = {
+    TASK_PERCEPTION: PERCEPTION_MODEL_ENV,
+    TASK_ADJUDICATION: ADJUDICATOR_MODEL_ENV,
 }
 
 SUPABASE_URL_ENV = "SUPABASE_URL"
@@ -130,12 +149,31 @@ def router_default_provider() -> str:
 def router_provider_for(task: str | None) -> str:
     """Provider name the router should use for `task`.
 
-    Reads the task's env var (ROUTER_PERCEPTION_PROVIDER / ROUTER_ADJUDICATION_PROVIDER),
-    falling back to ROUTER_DEFAULT_PROVIDER for an unset var or an unknown task.
+    Reads the task's env vars in precedence order — the Sprint 17B name
+    (PERCEPTION_PROVIDER / ADJUDICATOR_PROVIDER) then the legacy Sprint 17A name
+    (ROUTER_PERCEPTION_PROVIDER / ROUTER_ADJUDICATION_PROVIDER) — falling back to
+    ROUTER_DEFAULT_PROVIDER for an unset var or an unknown task.
     """
-    env = _ROUTER_TASK_ENV.get((task or "").strip().lower())
+    for env in _ROUTER_TASK_PROVIDER_ENVS.get((task or "").strip().lower(), ()):
+        value = os.getenv(env)
+        if value and value.strip():
+            return value.strip().lower()
+    return router_default_provider()
+
+
+def router_model_for(task: str | None) -> str | None:
+    """Model id the router should pin for `task`, or None to let the provider decide.
+
+    Reads the task's model env var (PERCEPTION_MODEL / ADJUDICATOR_MODEL). Returns
+    None when unset/blank so the resolved provider falls back to its own model
+    (AI_MODEL/GEMINI_MODEL or built-in default) — the unchanged Sprint 17A behavior.
+    Model ids are case-sensitive, so the value is only stripped, never lowercased.
+    """
+    env = _ROUTER_TASK_MODEL_ENV.get((task or "").strip().lower())
     value = os.getenv(env) if env else None
-    return (value or router_default_provider()).strip().lower()
+    if value and value.strip():
+        return value.strip()
+    return None
 
 
 def env_flag(name: str, default: bool = False) -> bool:

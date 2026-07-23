@@ -64,6 +64,7 @@ class AIProvider(ABC):
         temperature: float,
         max_tokens: int = 1200,
         response_schema: dict | None = None,
+        model: str | None = None,
     ) -> str:
         """Send one system+user turn and return the model's raw text reply.
 
@@ -77,6 +78,13 @@ class AIProvider(ABC):
         enabled — so the reply is guaranteed-parseable JSON. Providers that cannot
         honor it simply ignore it (the JSON-only prompt + caller-side validation +
         retry still apply).
+
+        `model` (Sprint 17B) is an optional per-call model override. When None a
+        provider uses its own configured model (AI_MODEL/GEMINI_MODEL env or its
+        built-in default), so single-provider behavior is unchanged; when set it is
+        the concrete model id to call. The value is provider-neutral in the same
+        way `temperature` is — a plain string the provider interprets. Providers
+        with no notion of a model (e.g. the mock) accept and ignore it.
         """
 
     @abstractmethod
