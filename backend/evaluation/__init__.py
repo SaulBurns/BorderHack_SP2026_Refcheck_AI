@@ -26,7 +26,15 @@ from evaluation.runner import (
     load_labeled_clips,
 )
 from evaluation.latency import LatencySummary, summarize_latencies
-from evaluation.benchmark import BenchmarkReport, BenchmarkResult, run_benchmark
+from evaluation.benchmark import (
+    STANDARD_COMBOS,
+    BenchmarkReport,
+    BenchmarkResult,
+    ProviderCombo,
+    resolve_combo,
+    run_benchmark,
+)
+from evaluation.cost import PRICING, CostSummary, TokenUsage
 from evaluation.report import render_html, render_markdown
 
 __all__ = [
@@ -50,4 +58,11 @@ __all__ = [
     "run_benchmark",
     "render_markdown",
     "render_html",
+    # Sprint 17D — provider combos, token usage, cost.
+    "ProviderCombo",
+    "STANDARD_COMBOS",
+    "resolve_combo",
+    "TokenUsage",
+    "CostSummary",
+    "PRICING",
 ]

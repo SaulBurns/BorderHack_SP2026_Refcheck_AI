@@ -21,6 +21,15 @@ def _pct(value: float | int | None) -> str:
     return "—" if value is None else f"{round(float(value) * 100)}%"
 
 
+def _tokens(value: int | None) -> str:
+    return "—" if not value else f"{int(value):,}"
+
+
+def _usd(value: float | None) -> str:
+    """Estimated cost — em-dash for a free/offline (zero-cost) run."""
+    return "—" if not value else f"${float(value):.4f}"
+
+
 # ---------------------------------------------------------------------------
 # Markdown
 # ---------------------------------------------------------------------------
@@ -42,6 +51,8 @@ def _comparison_rows(report: BenchmarkReport) -> list[tuple[str, ...]]:
                 _f3(ev.brier),
                 _f3(result.latency.mean_ms),
                 _f3(result.latency.p95_ms),
+                _tokens(result.usage.total_tokens),
+                _usd(result.cost.total_usd),
             )
         )
     return rows
@@ -56,8 +67,8 @@ def render_markdown(report: BenchmarkReport) -> str:
         "",
         "## Provider comparison",
         "",
-        "| Provider | Accuracy | Macro F1 | Kappa | ECE | MCC | Brier | Mean latency (ms) | p95 (ms) |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Provider | Accuracy | Macro F1 | Kappa | ECE | MCC | Brier | Mean latency (ms) | p95 (ms) | Tokens | Cost (USD) |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in _comparison_rows(report):
         lines.append("| " + " | ".join(row) + " |")
@@ -69,10 +80,29 @@ def render_markdown(report: BenchmarkReport) -> str:
             "Matthews correlation, then best-calibrated (lowest Brier), then fastest.",
             "",
         ]
+    cheapest = report.cheapest_provider()
+    if cheapest:
+        lines += [
+            f"**Lowest estimated cost: `{cheapest}`** 💲 — token counts are estimates and "
+            "prices are list (see `evaluation/cost.py`); use for relative comparison.",
+            "",
+        ]
 
     for result in report.results:
         lines += _provider_section_md(result)
     return "\n".join(lines)
+
+
+def _by_model_md(result: BenchmarkResult) -> str:
+    """Per-model token/cost breakdown (shows how a mixed combo splits across models)."""
+    models = result.usage.by_model
+    if len(models) <= 1:
+        return ""
+    parts = []
+    for model, usage in models.items():
+        usd = result.cost.by_model.get(model, {}).get("usd", 0.0)
+        parts.append(f"{model}: {_tokens(usage['total_tokens'])} tok / {_usd(usd)}")
+    return "  ·  by model — " + "; ".join(parts)
 
 
 def _provider_section_md(result: BenchmarkResult) -> list[str]:
@@ -87,6 +117,10 @@ def _provider_section_md(result: BenchmarkResult) -> list[str]:
         f"Mean confidence: {_f3(ev.mean_confidence)}",
         f"- Latency ms — mean {_f3(result.latency.mean_ms)} · p50 {_f3(result.latency.p50_ms)} · "
         f"p95 {_f3(result.latency.p95_ms)} · max {_f3(result.latency.max_ms)}",
+        f"- Tokens (estimated): {_tokens(result.usage.total_tokens)} "
+        f"(prompt {_tokens(result.usage.prompt_tokens)} · completion {_tokens(result.usage.completion_tokens)}"
+        f"; {result.usage.calls} call(s))  ·  Est. cost: {_usd(result.cost.total_usd)}"
+        + _by_model_md(result),
         "",
         "### Confusion matrix (rows = ground truth, cols = predicted)",
         "",
@@ -176,7 +210,7 @@ def _confusion_html(result: BenchmarkResult) -> str:
 def render_html(report: BenchmarkReport) -> str:
     comparison = _table(
         ["Provider", "Accuracy", "Macro F1", "Kappa", "ECE", "MCC", "Brier",
-         "Mean latency (ms)", "p95 (ms)"],
+         "Mean latency (ms)", "p95 (ms)", "Tokens", "Cost (USD)"],
         [list(row) for row in _comparison_rows(report)],
         first_col_label=True,
     )
@@ -185,6 +219,13 @@ def render_html(report: BenchmarkReport) -> str:
         f"<p class='meta'><strong>Recommended provider: <code>{escape(recommended)}</code></strong> ★ "
         "— highest accuracy, then Matthews correlation, then best-calibrated (lowest Brier), then fastest.</p>"
         if recommended
+        else ""
+    )
+    cheapest = report.cheapest_provider()
+    cheapest_html = (
+        f"<p class='meta'><strong>Lowest estimated cost: <code>{escape(cheapest)}</code></strong> 💲 "
+        "— token counts are estimates and prices are list; use for relative comparison.</p>"
+        if cheapest
         else ""
     )
 
@@ -218,7 +259,8 @@ def render_html(report: BenchmarkReport) -> str:
             f"<h2>Provider: {escape(result.provider)}</h2>"
             f"<p class='meta'>Accuracy {_pct(ev.accuracy)} · Macro F1 {_f3(ev.macro.get('f1'))} · "
             f"Kappa {_f3(ev.cohens_kappa)} · ECE {_f3(ev.ece)} · "
-            f"Latency mean {_f3(result.latency.mean_ms)}ms / p95 {_f3(result.latency.p95_ms)}ms</p>"
+            f"Latency mean {_f3(result.latency.mean_ms)}ms / p95 {_f3(result.latency.p95_ms)}ms · "
+            f"Tokens {_tokens(result.usage.total_tokens)} (est.) · Cost {_usd(result.cost.total_usd)} (est.)</p>"
             f"<h3>Confusion matrix</h3>{_confusion_html(result)}"
             f"<h3>Per-class metrics</h3>{per_class}"
             f"<h3>Confidence calibration</h3>{reliability}"
@@ -235,6 +277,7 @@ def render_html(report: BenchmarkReport) -> str:
         "<h2>Provider comparison</h2>"
         f"{comparison}"
         f"{recommended_html}"
+        f"{cheapest_html}"
         f"{''.join(sections)}"
         "</body></html>"
     )

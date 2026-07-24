@@ -13,6 +13,7 @@ from fastapi import UploadFile
 
 from services import config
 from services.ai import get_provider, image_part, text_part
+from services.ai import usage as _usage
 from services.ai.errors import ProviderError
 from services.ai.provider import AIProvider, MessageContent
 from services.analysis.calibration import calibrate_confidence
@@ -262,7 +263,7 @@ def _call_provider(
     response_schema: dict | None,
 ) -> str:
     """One reliability-wrapped provider turn (shared by primary + failover paths)."""
-    return call_with_retry(
+    reply = call_with_retry(
         lambda: provider.send_messages(
             system_prompt=system_prompt,
             user_content=user_content,
@@ -273,6 +274,16 @@ def _call_provider(
         provider=provider.provider_name(),
         model=provider.model_name(),
     )
+    # Sprint 17D — record estimated token usage for the benchmark. No-op unless the
+    # benchmark enabled tracking, so production pays nothing.
+    _usage.record_call(
+        provider=provider.provider_name(),
+        model=provider.model_name(),
+        system_prompt=system_prompt,
+        user_content=user_content,
+        reply=reply,
+    )
+    return reply
 
 
 def _send_validated(

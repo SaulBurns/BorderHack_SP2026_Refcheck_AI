@@ -237,15 +237,21 @@ backend/evaluation/
   runner.py     # EvaluationReport (from records) + evaluate()/evaluate_predictions()
   cli.py        # collect_predictions() drives the pipeline for one provider (shared seam),
                 # run_evaluation(), and `python -m evaluation` main()
-  benchmark.py  # run_benchmark(dataset, providers, detector) -> BenchmarkReport (per-provider
-                # EvaluationReport + LatencySummary) for side-by-side comparison
-  report.py     # render_markdown() / render_html() — provider comparison table, confusion
-                # matrices, per-class tables, calibration bins, latency
+  benchmark.py  # run_benchmark(dataset, providers|combos, detector) -> BenchmarkReport
+                # (per-combo EvaluationReport + LatencySummary + TokenUsage + CostSummary);
+                # ProviderCombo/STANDARD_COMBOS (claude|gemini|mixed) + resolve_combo (Sprint 17D)
+  cost.py       # PRICING (per-model $/1M list prices) + TokenUsage / CostSummary (Sprint 17D)
+  report.py     # render_markdown() / render_html() — provider comparison table (now incl.
+                # Tokens + Cost columns), confusion matrices, per-class tables, calibration, latency
 ```
+
+Token usage is recorded by `services/ai/usage.py` — a process-local, **off-by-default** estimator (`enable()`/`record()`/`snapshot()`) that `ai_analyzer._call_provider` reports each real call into (estimated tokens from prompt/reply length + a flat per-image estimate; zero production overhead). `scripts/benchmark_providers.py` is the Sprint 17D runner (Claude vs Gemini vs mixed routing; offline `--estimate` mode by default, `--live` for the real pipeline).
 
 **Datasets**: a JSON array of rows with `clip_id`, `sport`, `ground_truth_verdict` (required) and optional `video_path` / `original_call` (used to drive the pipeline). `data/eval/labeled_clips.example.json` is a 3-clip smoke set; `data/eval/benchmark_basketball.json` is the 10-scenario basketball benchmark, `data/eval/benchmark_soccer.json` (Sprint 10) the 7-scenario soccer benchmark, `data/eval/benchmark_hockey.json` (Sprint 11) the 7-scenario hockey benchmark, and `data/eval/benchmark_lacrosse.json` (Sprint 12) the 6-scenario lacrosse benchmark, all derived from the demo datasets.
 
-**Metrics**: overall accuracy, per-class + macro + micro precision/recall/F1, confusion matrix, Cohen's kappa, **Matthews correlation (MCC)** and **Brier score** (Sprint 14), confidence calibration (reliability bins + ECE), and inference latency (mean/p50/p95). **Provider comparison** runs the same dataset through `mock` | `anthropic` | `gemini`, tabulates the differences, and reports a **recommended provider** (accuracy → MCC → best calibration/Brier → fastest). Committed, reproducible report artifacts live in `backend/evaluation/reports/` (`benchmark_<sport>.md`/`.json`).
+**Metrics**: overall accuracy, per-class + macro + micro precision/recall/F1, confusion matrix, Cohen's kappa, **Matthews correlation (MCC)** and **Brier score** (Sprint 14), confidence calibration (reliability bins + ECE), inference latency (mean/p50/p95), and — **Sprint 17D** — **token usage** and **estimated cost** (per-model list-price cost model in `evaluation/cost.py`). **Provider comparison** runs the same dataset through `mock` | `anthropic` | `gemini`, tabulates the differences, and reports a **recommended provider** (accuracy → MCC → best calibration/Brier → fastest). Committed, reproducible report artifacts live in `backend/evaluation/reports/` (`benchmark_<sport>.md`/`.json`).
+
+**Provider benchmarking (Sprint 17D)**: the benchmarkable unit is a `ProviderCombo` — beyond bare providers, named combos compare the shipped deployment shapes: **`claude`** (anthropic), **`gemini`**, and **`mixed`** (the Sprint 17B router: perception→Gemini, adjudication→Claude). `run_benchmark(dataset, ["claude","gemini","mixed"])` (or `--providers claude,gemini,mixed`) measures accuracy + latency + **tokens + cost** per combo; the report adds Tokens/Cost columns and a `cheapest_provider` callout. `scripts/benchmark_providers.py` writes `provider_benchmark_<sport>.{md,json}` — offline **estimate mode** by default (tokens estimated from the real prompt templates, priced at list; accuracy is an offline baseline), `--live` for a real keyed run. Token counts are estimates and prices are list — for *relative* comparison, labelled as such in every report.
 
 **CLI** (`python -m evaluation`):
 ```bash
