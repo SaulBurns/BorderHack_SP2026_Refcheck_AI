@@ -1,19 +1,27 @@
-"""Automated benchmarking + provider comparison (Sprint 5).
+"""Automated benchmarking + provider comparison (Sprint 5; extended Sprint 17D).
 
-Runs a labeled dataset through the real pipeline once per provider (mock,
-anthropic, gemini), measuring inference latency, and packages each run's
-EvaluationReport + LatencySummary into a BenchmarkReport for side-by-side
-comparison. Report rendering (Markdown/HTML) lives in evaluation.report.
+Runs a labeled dataset through the real pipeline once per **provider combination**
+and packages each run's accuracy metrics + latency + token usage + estimated cost
+into a BenchmarkReport for side-by-side comparison. Report rendering (Markdown/HTML)
+lives in evaluation.report.
+
+Sprint 17D — the benchmarkable unit is a `ProviderCombo`, not just a single
+provider. Beyond the plain providers (`mock`/`anthropic`/`gemini`), named combos
+compare the three deployment shapes the project ships:
+  - `claude`  → AI_PROVIDER=anthropic
+  - `gemini`  → AI_PROVIDER=gemini
+  - `mixed`   → AI_PROVIDER=router, perception→gemini, adjudication→anthropic
+Each combo run also measures token usage (via `services.ai.usage`) and estimated
+cost (via `evaluation.cost`), so the report answers accuracy **and** cost/tokens.
 
 The pipeline is reached through `collect_predictions` in evaluation.cli, so the
 provider seam, env handling, and per-clip prediction logic are shared with the
-single-provider runner (no duplication). Tests inject `analyze_fn` to run fully
-offline and deterministically.
+single-provider runner (no duplication). Tests inject `analyze_fn` to run offline.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,19 +33,85 @@ from evaluation.cli import (
     _resolve_analyze_fn,
     collect_predictions,
 )
+from evaluation.cost import CostSummary, TokenUsage
 from evaluation.latency import LatencySummary, summarize_latencies
 from evaluation.runner import EvaluationReport, evaluate_predictions
 from services import config
+from services.ai import usage as _usage
+
+
+@dataclass(frozen=True)
+class ProviderCombo:
+    """A named benchmark configuration: a label + the env vars it runs under.
+
+    `env` always includes `AI_PROVIDER`; mixed routing adds the per-stage vars.
+    """
+
+    name: str
+    env: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def provider(self) -> str:
+        return self.env.get("AI_PROVIDER", "mock")
+
+
+# The comparison set for Sprint 17D — Claude vs Gemini vs mixed routing (+ mock
+# as the free offline baseline). Mixed reuses the Sprint 17B router seam.
+STANDARD_COMBOS: dict[str, ProviderCombo] = {
+    "mock": ProviderCombo("mock", {"AI_PROVIDER": "mock"}),
+    "claude": ProviderCombo("claude", {"AI_PROVIDER": "anthropic"}),
+    "gemini": ProviderCombo("gemini", {"AI_PROVIDER": "gemini"}),
+    "mixed": ProviderCombo(
+        "mixed",
+        {
+            "AI_PROVIDER": "router",
+            "PERCEPTION_PROVIDER": "gemini",
+            "PERCEPTION_MODEL": config.DEFAULT_GEMINI_MODEL,
+            "ADJUDICATOR_PROVIDER": "anthropic",
+            "ADJUDICATOR_MODEL": config.DEFAULT_ANTHROPIC_MODEL,
+        },
+    ),
+}
+
+
+def resolve_combo(name: str) -> ProviderCombo:
+    """Resolve a combo name (`claude`/`gemini`/`mixed`) or a bare provider name.
+
+    A bare provider (`mock`/`anthropic`/`gemini`) resolves to a single-provider
+    combo — backward compatible with the Sprint 5 `run_benchmark(providers=...)`.
+    """
+    if name in STANDARD_COMBOS:
+        return STANDARD_COMBOS[name]
+    if name in PROVIDERS:
+        return ProviderCombo(name, {"AI_PROVIDER": name})
+    raise ValueError(
+        f"Unknown provider/combo {name!r}; expected one of "
+        f"{sorted(set(PROVIDERS) | set(STANDARD_COMBOS))}."
+    )
+
+
+def _empty_usage() -> TokenUsage:
+    return TokenUsage.from_snapshot({})
+
+
+def _empty_cost() -> CostSummary:
+    return CostSummary.from_usage_snapshot({})
 
 
 @dataclass(frozen=True)
 class BenchmarkResult:
-    """One provider's run over the dataset: accuracy metrics + latency."""
+    """One combo's run over the dataset: accuracy + latency + tokens + cost.
+
+    `usage`/`cost` default to empty (Sprint 17D added them) so pre-17D construction
+    — e.g. building a result with only accuracy + latency — stays valid.
+    """
 
     provider: str
     detector: str
     evaluation: EvaluationReport
     latency: LatencySummary
+    usage: TokenUsage = field(default_factory=_empty_usage)
+    cost: CostSummary = field(default_factory=_empty_cost)
 
     def to_dict(self) -> dict:
         return {
@@ -45,6 +119,8 @@ class BenchmarkResult:
             "detector": self.detector,
             "evaluation": self.evaluation.to_dict(),
             "latency": self.latency.to_dict(),
+            "usage": self.usage.to_dict(),
+            "cost": self.cost.to_dict(),
         }
 
 
@@ -78,6 +154,17 @@ class BenchmarkReport:
         )
         return best.provider
 
+    def cheapest_provider(self) -> str | None:
+        """The lowest estimated-cost combo among those that spent anything (Sprint 17D).
+
+        Ignores zero-cost runs (mock / offline degradation) so the callout reflects
+        a real cost comparison; None when no combo recorded a cost.
+        """
+        priced = [r for r in self.results if r.cost.total_usd > 0]
+        if not priced:
+            return None
+        return min(priced, key=lambda r: r.cost.total_usd).provider
+
     def to_dict(self) -> dict:
         return {
             "dataset": self.dataset,
@@ -85,6 +172,7 @@ class BenchmarkReport:
             "generated_at": self.generated_at,
             "clip_count": self.clip_count,
             "recommended_provider": self.recommended_provider(),
+            "cheapest_provider": self.cheapest_provider(),
             "results": [result.to_dict() for result in self.results],
         }
 
@@ -95,12 +183,14 @@ def run_benchmark(
     detector: str = config.DEFAULT_DETECTOR,
     analyze_fn: AnalyzeFn | None = None,
 ) -> BenchmarkReport:
-    """Benchmark every provider over the dataset and return a comparison report."""
+    """Benchmark every provider/combo over the dataset and return a comparison report.
+
+    `providers` accepts bare provider names (`mock`/`anthropic`/`gemini`) and named
+    combos (`claude`/`gemini`/`mixed`); each is resolved to a `ProviderCombo`.
+    """
     if not providers:
         raise ValueError("At least one provider is required for a benchmark.")
-    unknown = [p for p in providers if p not in PROVIDERS]
-    if unknown:
-        raise ValueError(f"Unknown provider(s) {unknown}; expected from {PROVIDERS}.")
+    combos = [resolve_combo(name) for name in providers]  # raises on unknown names
     if detector not in DETECTORS:
         raise ValueError(f"Unknown detector {detector!r}; expected one of {DETECTORS}.")
 
@@ -108,18 +198,27 @@ def run_benchmark(
     labeled, run_params_by_id = _load_dataset(dataset_path)
 
     results: list[BenchmarkResult] = []
-    for provider in providers:
-        predictions, latencies_ms = collect_predictions(
-            labeled, run_params_by_id, provider, detector, analyze_fn
-        )
-        results.append(
-            BenchmarkResult(
-                provider=provider,
-                detector=detector,
-                evaluation=evaluate_predictions(labeled, predictions),
-                latency=summarize_latencies(latencies_ms),
+    _usage.enable()
+    try:
+        for combo in combos:
+            _usage.reset()
+            predictions, latencies_ms = collect_predictions(
+                labeled, run_params_by_id, combo.provider, detector, analyze_fn, env=combo.env
             )
-        )
+            snapshot = _usage.snapshot()
+            results.append(
+                BenchmarkResult(
+                    provider=combo.name,
+                    detector=detector,
+                    evaluation=evaluate_predictions(labeled, predictions),
+                    latency=summarize_latencies(latencies_ms),
+                    usage=TokenUsage.from_snapshot(snapshot),
+                    cost=CostSummary.from_usage_snapshot(snapshot),
+                )
+            )
+    finally:
+        _usage.disable()
+        _usage.reset()
 
     return BenchmarkReport(
         dataset=str(dataset_path),

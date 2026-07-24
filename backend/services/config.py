@@ -28,6 +28,12 @@ ANTHROPIC_API_KEY_ENV = "ANTHROPIC_API_KEY"
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 GEMINI_MODEL_ENV = "GEMINI_MODEL"
 
+# Sprint 17C — graceful failover. When the selected real provider fails a call
+# (auth/bad-request/SDK-missing, or transient retries exhausted), the pipeline
+# fails over to this provider before degrading to the offline mock. Unset (default)
+# = no failover, i.e. the unchanged behavior (a hard failure degrades to mock).
+PROVIDER_FALLBACK_ENV = "PROVIDER_FALLBACK"
+
 # Sprint 14 — opt-in provider optimizations (default OFF; behavior unchanged unless
 # explicitly enabled, so demos and tests are safe by default).
 #   ANTHROPIC_PROMPT_CACHE: cache the large, reused adjudicator/perception system
@@ -66,6 +72,45 @@ DEFAULT_PROVIDER_BACKOFF_BASE_SECONDS = 0.5
 DEFAULT_PROVIDER_BACKOFF_MAX_SECONDS = 8.0
 DEFAULT_PROVIDER_TIMEOUT_SECONDS = 90.0
 
+# Sprint 17A — provider router. With AI_PROVIDER=router, each pipeline task selects
+# its own provider: perception (vision-heavy) and adjudication (text reasoning) can
+# use different backends. Each task env falls back to ROUTER_DEFAULT_PROVIDER, which
+# defaults to "anthropic" — so AI_PROVIDER=router behaves like anthropic out of the box.
+ROUTER_DEFAULT_PROVIDER_ENV = "ROUTER_DEFAULT_PROVIDER"
+ROUTER_PERCEPTION_PROVIDER_ENV = "ROUTER_PERCEPTION_PROVIDER"
+ROUTER_ADJUDICATION_PROVIDER_ENV = "ROUTER_ADJUDICATION_PROVIDER"
+
+# Sprint 17B — per-agent providers AND models. Each pipeline stage can now also pin
+# its own model. The concise, spec-facing names take precedence over the legacy
+# Sprint 17A ROUTER_* provider vars (which stay valid for backward compatibility):
+#   perception   -> PERCEPTION_PROVIDER  + PERCEPTION_MODEL
+#   adjudication -> ADJUDICATOR_PROVIDER + ADJUDICATOR_MODEL
+# A model left unset means "let the resolved provider pick its own model" (its
+# AI_MODEL/GEMINI_MODEL env or built-in default), so out of the box nothing changes.
+PERCEPTION_PROVIDER_ENV = "PERCEPTION_PROVIDER"
+PERCEPTION_MODEL_ENV = "PERCEPTION_MODEL"
+ADJUDICATOR_PROVIDER_ENV = "ADJUDICATOR_PROVIDER"
+ADJUDICATOR_MODEL_ENV = "ADJUDICATOR_MODEL"
+
+DEFAULT_ROUTER_PROVIDER = "anthropic"
+
+# Task identifiers the pipeline routes on (also passed to `route()`).
+TASK_PERCEPTION = "perception"
+TASK_ADJUDICATION = "adjudication"
+
+# task -> the env vars naming its provider, highest precedence first. The Sprint 17B
+# name wins over the legacy Sprint 17A name; either falls back to ROUTER_DEFAULT_PROVIDER.
+_ROUTER_TASK_PROVIDER_ENVS = {
+    TASK_PERCEPTION: (PERCEPTION_PROVIDER_ENV, ROUTER_PERCEPTION_PROVIDER_ENV),
+    TASK_ADJUDICATION: (ADJUDICATOR_PROVIDER_ENV, ROUTER_ADJUDICATION_PROVIDER_ENV),
+}
+
+# task -> the env var naming its model (Sprint 17B).
+_ROUTER_TASK_MODEL_ENV = {
+    TASK_PERCEPTION: PERCEPTION_MODEL_ENV,
+    TASK_ADJUDICATION: ADJUDICATOR_MODEL_ENV,
+}
+
 SUPABASE_URL_ENV = "SUPABASE_URL"
 SUPABASE_SERVICE_ROLE_KEY_ENV = "SUPABASE_SERVICE_ROLE_KEY"
 SUPABASE_CLIPS_BUCKET_ENV = "SUPABASE_CLIPS_BUCKET"
@@ -100,6 +145,71 @@ def resolved_provider(explicit: str | None = None) -> str:
 def resolved_detector(explicit: str | None = None) -> str:
     """Detector key from an explicit arg, else DETECTOR, else the default."""
     return (explicit or os.getenv(DETECTOR_ENV) or DEFAULT_DETECTOR).strip().lower()
+
+
+def fallback_provider() -> str | None:
+    """The failover provider name (Sprint 17C), or None when none is configured."""
+    value = os.getenv(PROVIDER_FALLBACK_ENV)
+    if value and value.strip():
+        return value.strip().lower()
+    return None
+
+
+# provider key -> (model env var, default model). The single source of truth for
+# which env names/defaults each provider's model resolves from (Sprint 17C).
+_PROVIDER_MODEL_ENV = {
+    "anthropic": (AI_MODEL_ENV, DEFAULT_ANTHROPIC_MODEL),
+    "gemini": (GEMINI_MODEL_ENV, DEFAULT_GEMINI_MODEL),
+}
+
+
+def resolved_model_for_provider(name: str) -> str | None:
+    """The model id a leaf provider resolves to (its env override or default).
+
+    Returns None for providers with no model notion (e.g. the mock). Used by
+    startup validation and diagnostics so operators can see exactly which model a
+    given provider will call, without instantiating the provider.
+    """
+    entry = _PROVIDER_MODEL_ENV.get((name or "").strip().lower())
+    if entry is None:
+        return None
+    env_name, default = entry
+    return os.getenv(env_name) or default
+
+
+def router_default_provider() -> str:
+    """The provider a router task falls back to (default "anthropic")."""
+    return (os.getenv(ROUTER_DEFAULT_PROVIDER_ENV) or DEFAULT_ROUTER_PROVIDER).strip().lower()
+
+
+def router_provider_for(task: str | None) -> str:
+    """Provider name the router should use for `task`.
+
+    Reads the task's env vars in precedence order — the Sprint 17B name
+    (PERCEPTION_PROVIDER / ADJUDICATOR_PROVIDER) then the legacy Sprint 17A name
+    (ROUTER_PERCEPTION_PROVIDER / ROUTER_ADJUDICATION_PROVIDER) — falling back to
+    ROUTER_DEFAULT_PROVIDER for an unset var or an unknown task.
+    """
+    for env in _ROUTER_TASK_PROVIDER_ENVS.get((task or "").strip().lower(), ()):
+        value = os.getenv(env)
+        if value and value.strip():
+            return value.strip().lower()
+    return router_default_provider()
+
+
+def router_model_for(task: str | None) -> str | None:
+    """Model id the router should pin for `task`, or None to let the provider decide.
+
+    Reads the task's model env var (PERCEPTION_MODEL / ADJUDICATOR_MODEL). Returns
+    None when unset/blank so the resolved provider falls back to its own model
+    (AI_MODEL/GEMINI_MODEL or built-in default) — the unchanged Sprint 17A behavior.
+    Model ids are case-sensitive, so the value is only stripped, never lowercased.
+    """
+    env = _ROUTER_TASK_MODEL_ENV.get((task or "").strip().lower())
+    value = os.getenv(env) if env else None
+    if value and value.strip():
+        return value.strip()
+    return None
 
 
 def env_flag(name: str, default: bool = False) -> bool:

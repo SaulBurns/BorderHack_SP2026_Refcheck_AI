@@ -17,7 +17,7 @@ from services.ai.providers.mock_provider import MockProvider
 # ---------------------------------------------------------------------------
 
 def test_supported_providers():
-    assert supported_providers() == ["anthropic", "gemini", "mock"]
+    assert supported_providers() == ["anthropic", "gemini", "mock", "router"]
 
 @pytest.mark.parametrize("name,cls,pname", [
     ("mock", MockProvider, "mock"),

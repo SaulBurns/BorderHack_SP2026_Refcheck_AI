@@ -12,10 +12,37 @@ services:
       # in CI, or leave for Render to fill from the commit).
       - key: APP_VERSION
         sync: false
+      # AI provider: mock | anthropic | gemini | router.
+      # router = per-agent providers (Sprint 17A/B): each pipeline stage picks its
+      # own provider+model. Here perception runs on Gemini (fast, cheap vision) and
+      # adjudication on Claude (strong reasoning) — "it uses both". Requires both
+      # GEMINI_API_KEY and ANTHROPIC_API_KEY set below.
       - key: AI_PROVIDER
+        value: router
+      # Perception stage -> Gemini.
+      - key: PERCEPTION_PROVIDER
+        value: gemini
+      - key: PERCEPTION_MODEL
+        value: gemini-2.5-flash
+      # Adjudication stage -> Claude.
+      - key: ADJUDICATOR_PROVIDER
         value: anthropic
+      - key: ADJUDICATOR_MODEL
+        value: claude-sonnet-4-5
+      # Legacy single-provider default model (harmless under router; kept for a quick
+      # switch back to AI_PROVIDER=anthropic).
       - key: AI_MODEL
         value: claude-sonnet-4-5
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      # Secrets for BOTH legs — set these in the Render dashboard (never committed).
+      - key: GEMINI_API_KEY
+        sync: false
+      # Graceful failover (Sprint 17C): if a stage's provider fails a call, retry
+      # once on this provider before degrading to the offline mock. Optional.
+      # For this both-provider setup, PROVIDER_FALLBACK=anthropic is a safe choice.
+      - key: PROVIDER_FALLBACK
+        sync: false
       # Observability (Sprint 15).
       - key: LOG_LEVEL
         value: INFO

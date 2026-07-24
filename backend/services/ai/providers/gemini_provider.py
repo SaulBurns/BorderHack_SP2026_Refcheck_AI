@@ -36,6 +36,20 @@ class GeminiProvider(AIProvider):
     def model_name(self) -> str:
         return os.getenv(config.GEMINI_MODEL_ENV) or DEFAULT_MODEL
 
+    @staticmethod
+    def sdk_available() -> bool:
+        """Whether the optional `google-genai` SDK is importable (Sprint 17C).
+
+        A pure, side-effect-free probe (no client is created, no key is read) used
+        by startup validation and the readiness check, so a `gemini` deployment
+        that forgot to install the SDK is caught *before* the first request rather
+        than silently degrading to the mock. Delegates to the shared probe in
+        `services/ai/startup.py` (single source of truth for the module path).
+        """
+        from services.ai import startup
+
+        return startup.gemini_sdk_available()
+
     def supports_vision(self) -> bool:
         return True
 
@@ -47,6 +61,7 @@ class GeminiProvider(AIProvider):
         temperature: float,
         max_tokens: int = 1200,
         response_schema: dict | None = None,
+        model: str | None = None,
     ) -> str:
         api_key = os.getenv(config.GEMINI_API_KEY_ENV)
         if not api_key:
@@ -55,7 +70,8 @@ class GeminiProvider(AIProvider):
 
         genai, types = self._load_sdk()
         client = genai.Client(api_key=api_key)
-        model = os.getenv(config.GEMINI_MODEL_ENV) or DEFAULT_MODEL
+        # Sprint 17B — a per-call `model` override wins over the GEMINI_MODEL env/default.
+        model = model or os.getenv(config.GEMINI_MODEL_ENV) or DEFAULT_MODEL
 
         try:
             response = client.models.generate_content(

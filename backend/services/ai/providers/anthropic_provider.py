@@ -49,13 +49,15 @@ class AnthropicProvider(AIProvider):
         temperature: float,
         max_tokens: int = 1200,
         response_schema: dict | None = None,
+        model: str | None = None,
     ) -> str:
         api_key = os.getenv(config.ANTHROPIC_API_KEY_ENV)
         if not api_key:
             # Auth/config error — never retry.
             raise PermanentProviderError("ANTHROPIC_API_KEY is not set", provider="anthropic")
 
-        model = os.getenv(config.AI_MODEL_ENV) or DEFAULT_MODEL
+        # Sprint 17B — a per-call `model` override wins over the AI_MODEL env/default.
+        model = model or os.getenv(config.AI_MODEL_ENV) or DEFAULT_MODEL
         payload = self.build_payload(
             model=model,
             system_prompt=system_prompt,

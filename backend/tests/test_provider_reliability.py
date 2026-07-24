@@ -235,6 +235,9 @@ class _FakeProvider:
     def model_name(self):
         return "claude-x"
 
+    def route(self, task=None):
+        return self  # single-provider seam (Sprint 17A): no routing
+
     def send_messages(self, **_kwargs):
         item = self._script[min(self.calls, len(self._script) - 1)]
         self.calls += 1

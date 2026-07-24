@@ -86,16 +86,19 @@ def collect_predictions(
     provider: str,
     detector: str,
     analyze_fn: AnalyzeFn,
+    env: dict[str, str] | None = None,
 ) -> tuple[list[Prediction], list[float]]:
     """Drive the pipeline for one provider/detector over the labeled clips.
 
-    Sets AI_PROVIDER/DETECTOR for the run and restores them afterward. Returns the
-    predictions plus per-clip latencies in milliseconds (used by the benchmark).
+    Sets AI_PROVIDER/DETECTOR (and any extra `env`, e.g. the router's per-stage
+    provider vars for a mixed-routing combo — Sprint 17D) for the run and restores
+    them afterward. Returns the predictions plus per-clip latencies in milliseconds.
     """
-    prev_provider = os.environ.get("AI_PROVIDER")
-    prev_detector = os.environ.get("DETECTOR")
-    os.environ["AI_PROVIDER"] = provider
-    os.environ["DETECTOR"] = detector
+    # AI_PROVIDER + DETECTOR always set; `env` layers arbitrary extra vars on top
+    # (used for AI_PROVIDER=router combos that need PERCEPTION_PROVIDER etc.).
+    overrides = {"AI_PROVIDER": provider, "DETECTOR": detector, **(env or {})}
+    previous = {name: os.environ.get(name) for name in overrides}
+    os.environ.update(overrides)
     predictions: list[Prediction] = []
     latencies_ms: list[float] = []
     try:
@@ -105,8 +108,8 @@ def collect_predictions(
             latencies_ms.append((perf_counter() - started) * 1000)
             predictions.append(prediction)
     finally:
-        _restore_env("AI_PROVIDER", prev_provider)
-        _restore_env("DETECTOR", prev_detector)
+        for name, value in previous.items():
+            _restore_env(name, value)
     return predictions, latencies_ms
 
 
@@ -145,7 +148,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--providers",
         default=None,
-        help="Comma-separated providers for a comparison benchmark, e.g. mock,anthropic,gemini.",
+        help="Comma-separated providers/combos for a comparison benchmark. Accepts "
+        "bare providers (mock,anthropic,gemini) and Sprint 17D combos "
+        "(claude,gemini,mixed) — e.g. claude,gemini,mixed.",
     )
     parser.add_argument(
         "--detector", default=config.DEFAULT_DETECTOR, choices=DETECTORS, help="Perception detector."
@@ -186,12 +191,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.html:
         _write_file(args.html, render_html(benchmark))
 
-    print(f"Benchmarked {len(providers)} provider(s) over {benchmark.clip_count} clips:")
+    print(f"Benchmarked {len(providers)} provider(s)/combo(s) over {benchmark.clip_count} clips:")
     for result in benchmark.results:
         ev = result.evaluation
         print(
             f"  {result.provider:>10} | acc={ev.accuracy:.3f} macroF1={ev.macro.get('f1', 0.0):.3f} "
-            f"kappa={ev.cohens_kappa:.3f} ece={ev.ece:.3f} mean_ms={result.latency.mean_ms:.1f}"
+            f"kappa={ev.cohens_kappa:.3f} ece={ev.ece:.3f} mean_ms={result.latency.mean_ms:.1f} "
+            f"tokens={result.usage.total_tokens} est_cost=${result.cost.total_usd:.4f}"
         )
     print(f"Report written to {args.output}")
     return 0

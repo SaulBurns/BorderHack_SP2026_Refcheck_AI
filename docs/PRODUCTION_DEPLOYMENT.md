@@ -33,15 +33,49 @@ until you opt in.
 | `RATE_LIMIT_PER_MINUTE` | Requests/min per client on `/analyze`, `/api/analyze` (`0` = disabled) | `0` |
 | `API_KEYS` | Comma-separated accepted API keys (enables auth) | unset (auth off) |
 | `REFCHECK_API_KEY` | Single API key (alternative to `API_KEYS`) | unset |
-| `AI_PROVIDER` | `mock` / `anthropic` / `gemini` | `mock` |
+| `AI_PROVIDER` | `mock` / `anthropic` / `gemini` / `router` | `mock` |
 | `AI_MODEL` / `GEMINI_MODEL` | Model overrides | see `services/config.py` |
 | `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | Provider secrets | unset |
+| `PROVIDER_FALLBACK` | Failover provider tried once before the mock (Sprint 17C) | unset (no failover) |
 | `ANTHROPIC_PROMPT_CACHE` / `GEMINI_JSON_MODE` | Opt-in provider optimizations (Sprint 14) | off |
 | `FRONTEND_ORIGIN` / `CORS_ORIGINS` | Extra CORS origins (comma-separated) | built-in list + `*.vercel.app` |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_CLIPS_BUCKET` / `SUPABASE_VERDICTS_TABLE` | Optional persistence | unset (in-memory feed) |
 
 Missing provider keys **degrade to the mock path** (surfaced in diagnostics and in
 `/api/health/ready`), so the service never hard-fails on a missing secret.
+
+### Gemini in production (Sprint 17C)
+
+Gemini is a first-class deployment target:
+
+- **SDK ships in the image.** `google-genai` is now a real dependency in
+  `backend/requirements.txt`, so `AI_PROVIDER=gemini` (or a Gemini leg of
+  `AI_PROVIDER=router`) works out of the box — no custom build. It is still
+  imported lazily, so anthropic/mock deploys are unaffected, and a missing SDK
+  degrades gracefully instead of crashing.
+- **Boot-time validation.** At startup the app validates the provider config and
+  logs a clear warning for each problem (missing `GEMINI_API_KEY`, missing SDK,
+  unsupported `AI_PROVIDER`, unusable `PROVIDER_FALLBACK`) plus an info line with
+  the effective config summary. Non-fatal — the pipeline still degrades to mock.
+- **Readiness surfaces Gemini.** `/api/health/ready` reports the Gemini API key
+  **and** SDK availability in the `provider` check, and echoes the active
+  `provider` / `model` / `fallback` / `gemini_sdk_available` under a top-level
+  `ai` block.
+- **Graceful failover.** Set `PROVIDER_FALLBACK=anthropic` with a Gemini primary:
+  if a Gemini call fails (auth / bad request / SDK missing, or transient retries
+  exhausted), the pipeline retries the turn once on Anthropic before degrading to
+  the mock. A configured, usable failover also keeps `/api/health/ready` green
+  even while the primary is down (the detail names the failover target).
+
+Recommended Gemini production config:
+
+```
+AI_PROVIDER=gemini
+GEMINI_API_KEY=...          # secret
+GEMINI_MODEL=gemini-2.5-flash
+PROVIDER_FALLBACK=anthropic
+ANTHROPIC_API_KEY=...       # secret, for the failover leg
+```
 
 ---
 
@@ -97,7 +131,9 @@ generated), so a client id flows through the logs.
 **Health**
 - `GET /api/health` — liveness (fast; backward-compatible `status: "ok"` superset).
 - `GET /api/health/ready` — readiness (`200` ready / `503` degraded) with per-check
-  detail for provider config, `ffmpeg`, and the upload dir. Use this as the
+  detail for provider config (key + Gemini SDK, failover-aware), provider comms,
+  `ffmpeg`, and the upload dir, plus a top-level `ai` summary
+  (`provider`/`model`/`fallback`/`gemini_sdk_available`). Use this as the
   orchestrator readiness probe; `/api/health` as liveness.
 - `GET /api/version` — version + environment.
 
@@ -164,6 +200,7 @@ python scripts/perf_benchmark.py --iterations 6 --output after.json
 
 - [ ] `APP_ENV=production`, `APP_VERSION` = git SHA
 - [ ] `ANTHROPIC_API_KEY` (or `GEMINI_API_KEY`) set; `/api/health/ready` returns `ready`
+- [ ] For Gemini: `AI_PROVIDER=gemini`, `GEMINI_API_KEY` set, `ai.gemini_sdk_available: true` in readiness; ideally `PROVIDER_FALLBACK=anthropic` (+ `ANTHROPIC_API_KEY`)
 - [ ] `API_KEYS` set and shared with trusted clients (if auth required)
 - [ ] `RATE_LIMIT_PER_MINUTE` tuned to the plan
 - [ ] `FRONTEND_ORIGIN` set to the deployed frontend

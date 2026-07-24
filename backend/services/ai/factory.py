@@ -16,6 +16,7 @@ from services.ai.provider import AIProvider
 from services.ai.providers.anthropic_provider import AnthropicProvider
 from services.ai.providers.gemini_provider import GeminiProvider
 from services.ai.providers.mock_provider import MockProvider
+from services.ai.providers.router_provider import RouterProvider
 from services.registry import Registry
 
 # Re-exported for backward compatibility; the canonical value lives in config.
@@ -26,6 +27,8 @@ _registry: Registry[AIProvider] = Registry("provider")
 _registry.register("mock", MockProvider)
 _registry.register("anthropic", AnthropicProvider)
 _registry.register("gemini", GeminiProvider)
+# Sprint 17A — the router selects a delegate provider per task (see RouterProvider).
+_registry.register("router", RouterProvider)
 
 
 def supported_providers() -> list[str]:

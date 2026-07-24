@@ -9,9 +9,12 @@ certifi
 # DETECTOR=claude_vision. Install only when running YOLO-based detection.
 # ultralytics
 
-# Optional: Google Gemini provider (AI_PROVIDER=gemini).
-# Imported lazily; not required for mock or anthropic. Install to use Gemini.
-# google-genai
+# Google Gemini provider (AI_PROVIDER=gemini, or a Gemini leg of AI_PROVIDER=router).
+# Now a first-class dependency (Sprint 17C) so Gemini is production-deployable out of
+# the box — the image can run Gemini without a custom build. Still imported lazily, so
+# mock/anthropic deploys are unaffected and a missing SDK degrades gracefully rather
+# than crashing (surfaced by /api/health/ready and startup validation).
+google-genai
 
 # NBA game-metadata enrichment (basketball `game_context`).
 # Pure-Python but pulls in requests + pandas. Imported lazily and fully guarded:
