@@ -38,6 +38,10 @@ COPY --from=builder /install /usr/local
 # Run as an unprivileged user (least privilege).
 RUN useradd --create-home --uid 10001 appuser
 COPY --chown=appuser:appuser . .
+# Pre-create the runtime write dirs owned by appuser. /app itself is root-owned, so
+# without this the non-root user cannot `mkdir /app/uploads` at request time — the
+# clip save + frame extraction fail and readiness reports the upload dir degraded.
+RUN mkdir -p /app/uploads/frames && chown -R appuser:appuser /app/uploads
 USER appuser
 
 EXPOSE 8000
