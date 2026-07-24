@@ -28,6 +28,12 @@ ANTHROPIC_API_KEY_ENV = "ANTHROPIC_API_KEY"
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 GEMINI_MODEL_ENV = "GEMINI_MODEL"
 
+# Sprint 17C — graceful failover. When the selected real provider fails a call
+# (auth/bad-request/SDK-missing, or transient retries exhausted), the pipeline
+# fails over to this provider before degrading to the offline mock. Unset (default)
+# = no failover, i.e. the unchanged behavior (a hard failure degrades to mock).
+PROVIDER_FALLBACK_ENV = "PROVIDER_FALLBACK"
+
 # Sprint 14 — opt-in provider optimizations (default OFF; behavior unchanged unless
 # explicitly enabled, so demos and tests are safe by default).
 #   ANTHROPIC_PROMPT_CACHE: cache the large, reused adjudicator/perception system
@@ -139,6 +145,36 @@ def resolved_provider(explicit: str | None = None) -> str:
 def resolved_detector(explicit: str | None = None) -> str:
     """Detector key from an explicit arg, else DETECTOR, else the default."""
     return (explicit or os.getenv(DETECTOR_ENV) or DEFAULT_DETECTOR).strip().lower()
+
+
+def fallback_provider() -> str | None:
+    """The failover provider name (Sprint 17C), or None when none is configured."""
+    value = os.getenv(PROVIDER_FALLBACK_ENV)
+    if value and value.strip():
+        return value.strip().lower()
+    return None
+
+
+# provider key -> (model env var, default model). The single source of truth for
+# which env names/defaults each provider's model resolves from (Sprint 17C).
+_PROVIDER_MODEL_ENV = {
+    "anthropic": (AI_MODEL_ENV, DEFAULT_ANTHROPIC_MODEL),
+    "gemini": (GEMINI_MODEL_ENV, DEFAULT_GEMINI_MODEL),
+}
+
+
+def resolved_model_for_provider(name: str) -> str | None:
+    """The model id a leaf provider resolves to (its env override or default).
+
+    Returns None for providers with no model notion (e.g. the mock). Used by
+    startup validation and diagnostics so operators can see exactly which model a
+    given provider will call, without instantiating the provider.
+    """
+    entry = _PROVIDER_MODEL_ENV.get((name or "").strip().lower())
+    if entry is None:
+        return None
+    env_name, default = entry
+    return os.getenv(env_name) or default
 
 
 def router_default_provider() -> str:

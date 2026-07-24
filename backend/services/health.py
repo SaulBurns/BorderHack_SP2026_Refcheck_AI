@@ -20,6 +20,7 @@ import shutil
 import time
 
 from services import config
+from services.ai import startup
 
 # Process start time for an uptime signal (module import ~= process start).
 _STARTED_AT = time.time()
@@ -51,33 +52,40 @@ def liveness() -> dict:
     }
 
 
-def _provider_key_status(provider: str) -> tuple[bool, str]:
-    """Whether the provider's API key is present (True for the keyless mock)."""
-    if provider == "mock":
-        return True, "no key required"
-    key_env = {
-        "anthropic": config.ANTHROPIC_API_KEY_ENV,
-        "gemini": config.GEMINI_API_KEY_ENV,
-    }.get(provider)
-    if key_env is None:
-        return False, "unknown provider"
-    has_key = bool(os.getenv(key_env))
-    return has_key, "API key present" if has_key else "API key missing (will degrade to mock)"
-
-
-def _check_provider() -> dict:
+def _primary_provider_status() -> dict:
+    """Status of the selected provider (each leg, for a router), no failover yet."""
     provider = config.resolved_provider()
     if provider != "router":
-        ok, detail = _provider_key_status(provider)
+        ok, detail = startup.provider_status(provider)
         return {"ok": ok, "detail": f"{provider}: {detail}"}
-    # Router (Sprint 17A): check every per-task delegate's key.
+    # Router (Sprint 17A): check every per-task delegate's key + SDK.
     routed = {task: config.router_provider_for(task) for task in (config.TASK_PERCEPTION, config.TASK_ADJUDICATION)}
     parts, ok = [], True
     for task, name in routed.items():
-        key_ok, detail = _provider_key_status(name)
-        ok = ok and key_ok
+        leg_ok, detail = startup.provider_status(name)
+        ok = ok and leg_ok
         parts.append(f"{task}→{name} ({detail})")
     return {"ok": ok, "detail": "router: " + "; ".join(parts)}
+
+
+def _check_provider() -> dict:
+    """Provider readiness, failover-aware (Sprint 17C).
+
+    Reports the selected provider's key/SDK status. When that is degraded but a
+    usable `PROVIDER_FALLBACK` is configured, readiness stays green — the pipeline
+    will fail over — and the detail names the failover target; if the fallback is
+    also unusable the check stays red.
+    """
+    base = _primary_provider_status()
+    if base["ok"]:
+        return base
+    fallback = config.fallback_provider()
+    if not fallback:
+        return base
+    fb_ok, fb_detail = startup.provider_status(fallback)
+    if fb_ok:
+        return {"ok": True, "detail": f"{base['detail']}; failover→{fallback} ({fb_detail})"}
+    return {"ok": False, "detail": f"{base['detail']}; failover→{fallback} also unavailable ({fb_detail})"}
 
 
 def _check_ffmpeg() -> dict:
@@ -143,5 +151,9 @@ def readiness() -> dict:
         "version": app_version(),
         "environment": app_environment(),
         "uptime_seconds": uptime_seconds(),
+        # Additive diagnostics (Sprint 17C): the active provider/model/fallback and
+        # Gemini SDK availability, so an operator can read the effective AI config
+        # straight off /api/health/ready. Kept out of `checks` (stable contract).
+        "ai": startup.ai_config_summary(),
         "checks": checks,
     }

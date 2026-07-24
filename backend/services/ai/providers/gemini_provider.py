@@ -36,6 +36,20 @@ class GeminiProvider(AIProvider):
     def model_name(self) -> str:
         return os.getenv(config.GEMINI_MODEL_ENV) or DEFAULT_MODEL
 
+    @staticmethod
+    def sdk_available() -> bool:
+        """Whether the optional `google-genai` SDK is importable (Sprint 17C).
+
+        A pure, side-effect-free probe (no client is created, no key is read) used
+        by startup validation and the readiness check, so a `gemini` deployment
+        that forgot to install the SDK is caught *before* the first request rather
+        than silently degrading to the mock. Delegates to the shared probe in
+        `services/ai/startup.py` (single source of truth for the module path).
+        """
+        from services.ai import startup
+
+        return startup.gemini_sdk_available()
+
     def supports_vision(self) -> bool:
         return True
 

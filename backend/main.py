@@ -45,6 +45,16 @@ else:
 configure_logging()
 logger = logging.getLogger("refcheck")
 
+# Validate the AI provider configuration once at boot (Sprint 17C). Non-fatal —
+# the pipeline still degrades to the mock at request time — but a misconfigured
+# Gemini deploy (missing key or google-genai SDK) is surfaced loudly here instead
+# of failing silently on the first analysis.
+from services.ai import startup as _ai_startup  # noqa: E402
+
+for _warning in _ai_startup.validate_ai_config():
+    logger.warning("AI config: %s", _warning)
+logger.info("AI provider configuration: %s", _ai_startup.ai_config_summary())
+
 app = FastAPI(title="RefCheck AI", version=health.app_version())
 
 # Endpoints protected by rate limiting (the expensive write paths). Reads the raw

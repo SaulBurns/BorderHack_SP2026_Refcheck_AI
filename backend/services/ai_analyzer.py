@@ -1,5 +1,6 @@
 import copy
 import json
+import logging
 import os
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
@@ -12,6 +13,7 @@ from fastapi import UploadFile
 
 from services import config
 from services.ai import get_provider, image_part, text_part
+from services.ai.errors import ProviderError
 from services.ai.provider import AIProvider, MessageContent
 from services.analysis.calibration import calibrate_confidence
 from services.analysis.contracts import AgentResult, RuleRecord
@@ -40,6 +42,8 @@ from services.verdicts import normalize_verdict as _frontend_verdict
 # so the orchestration functions below call them by bare name — which keeps every
 # `from services.ai_analyzer import ...` path and `monkeypatch.setattr(ai, ...)`
 # seam working exactly as before the Sprint 7 split.
+
+logger = logging.getLogger("refcheck.ai")
 
 
 # ---------------------------------------------------------------------------
@@ -211,8 +215,53 @@ def _send_messages(
     connection) with exponential backoff and records provider-comms health. Auth /
     bad-request errors are permanent and raised immediately; validation failures are
     handled a layer up in `_send_validated`, so they are never transport-retried.
+
+    Sprint 17C — graceful failover: if the primary provider still fails after its
+    transport retries (or fails permanently, e.g. missing key / missing SDK) and a
+    `PROVIDER_FALLBACK` provider is configured (and differs from the primary), the
+    same turn is retried once on that fallback provider before the caller degrades to
+    the mock. This makes a Gemini deployment resilient — a Gemini outage fails over to
+    Anthropic — with no failover configured, behavior is exactly as before.
     """
-    provider = _active_provider().route(task)
+    primary = _active_provider().route(task)
+    try:
+        return _call_provider(
+            primary,
+            system_prompt=system_prompt,
+            user_content=user_content,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_schema=response_schema,
+        )
+    except ProviderError as exc:
+        fallback = config.fallback_provider()
+        if not fallback or fallback == primary.provider_name():
+            raise
+        delegate = get_provider(fallback).route(task)
+        logger.warning(
+            "provider %s failed (%s); failing over to %s",
+            primary.provider_name(), exc, delegate.provider_name(),
+        )
+        return _call_provider(
+            delegate,
+            system_prompt=system_prompt,
+            user_content=user_content,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_schema=response_schema,
+        )
+
+
+def _call_provider(
+    provider: AIProvider,
+    *,
+    system_prompt: str,
+    user_content: MessageContent,
+    temperature: float,
+    max_tokens: int,
+    response_schema: dict | None,
+) -> str:
+    """One reliability-wrapped provider turn (shared by primary + failover paths)."""
     return call_with_retry(
         lambda: provider.send_messages(
             system_prompt=system_prompt,

@@ -12,10 +12,23 @@ services:
       # in CI, or leave for Render to fill from the commit).
       - key: APP_VERSION
         sync: false
+      # AI provider: mock | anthropic | gemini | router. Default anthropic.
+      # For Gemini, set AI_PROVIDER=gemini and provide GEMINI_API_KEY below
+      # (the google-genai SDK ships in the image as of Sprint 17C).
       - key: AI_PROVIDER
         value: anthropic
       - key: AI_MODEL
         value: claude-sonnet-4-5
+      # Gemini config (used when AI_PROVIDER=gemini or a router routes to gemini).
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      # Graceful failover (Sprint 17C): if the primary provider fails a call, retry
+      # once on this provider before degrading to the offline mock. Unset = no
+      # failover. Recommended for a Gemini primary: PROVIDER_FALLBACK=anthropic.
+      - key: PROVIDER_FALLBACK
+        sync: false
       # Observability (Sprint 15).
       - key: LOG_LEVEL
         value: INFO
