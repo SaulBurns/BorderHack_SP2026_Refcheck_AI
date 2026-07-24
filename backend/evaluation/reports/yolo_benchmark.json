@@ -1,0 +1,17 @@
+{
+  "mode": "live",
+  "detector_version": "0.3.0",
+  "default_model": "yolo26n.pt",
+  "results": [
+    {
+      "config": "before",
+      "model": "yolov8n.pt",
+      "latency_ms": 422.65
+    },
+    {
+      "config": "after",
+      "model": "yolo26n.pt",
+      "latency_ms": 403.68
+    }
+  ]
+}

@@ -24,6 +24,16 @@ AI_MODEL_ENV = "AI_MODEL"
 DETECTOR_ENV = "DETECTOR"
 ANALYSIS_CACHE_ENV = "ANALYSIS_CACHE"
 
+# Sprint 18A — YOLO detector configuration. The `yolov8`/`hybrid` detectors run
+# Ultralytics YOLO; these vars make the weights, tracker, and thresholds fully
+# configurable without code changes. Defaults track the latest stable Ultralytics
+# flagship (YOLO26, Jan 2026). The `yolov8` registry key is kept as a stable role
+# identifier; the concrete model that ran is always reported on `RawDetections.model`.
+YOLO_MODEL_ENV = "YOLO_MODEL"
+YOLO_CONFIDENCE_ENV = "YOLO_CONFIDENCE"
+YOLO_TRACKER_ENV = "YOLO_TRACKER"
+YOLO_TRACKING_ENV = "YOLO_TRACKING"
+
 ANTHROPIC_API_KEY_ENV = "ANTHROPIC_API_KEY"
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 GEMINI_MODEL_ENV = "GEMINI_MODEL"
@@ -130,6 +140,13 @@ DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_SUPABASE_BUCKET = "clips"
 DEFAULT_SUPABASE_TABLE = "verdicts"
 
+# Sprint 18A — YOLO detector defaults. Upgraded from YOLOv8-nano (`yolov8n.pt`) to
+# the latest stable Ultralytics flagship, YOLO26-nano. `bytetrack.yaml` remains the
+# standard Ultralytics tracker config name across the 8.x line.
+DEFAULT_YOLO_MODEL = "yolo26n.pt"
+DEFAULT_YOLO_CONFIDENCE = 0.25
+DEFAULT_YOLO_TRACKER = "bytetrack.yaml"
+
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
@@ -145,6 +162,30 @@ def resolved_provider(explicit: str | None = None) -> str:
 def resolved_detector(explicit: str | None = None) -> str:
     """Detector key from an explicit arg, else DETECTOR, else the default."""
     return (explicit or os.getenv(DETECTOR_ENV) or DEFAULT_DETECTOR).strip().lower()
+
+
+def resolved_yolo_model(explicit: str | None = None) -> str:
+    """YOLO weights id from an explicit arg, else YOLO_MODEL, else the default (Sprint 18A)."""
+    return (explicit or os.getenv(YOLO_MODEL_ENV) or DEFAULT_YOLO_MODEL).strip()
+
+
+def resolved_yolo_confidence(explicit: float | None = None) -> float:
+    """YOLO confidence threshold from an explicit arg, else YOLO_CONFIDENCE, else default."""
+    if explicit is not None:
+        return explicit
+    return env_float(YOLO_CONFIDENCE_ENV, DEFAULT_YOLO_CONFIDENCE)
+
+
+def resolved_yolo_tracker(explicit: str | None = None) -> str:
+    """YOLO tracker config from an explicit arg, else YOLO_TRACKER, else the default."""
+    return (explicit or os.getenv(YOLO_TRACKER_ENV) or DEFAULT_YOLO_TRACKER).strip()
+
+
+def resolved_yolo_tracking(explicit: bool | None = None) -> bool:
+    """Whether YOLO runs with tracking (persistent track_ids), default on (Sprint 18A)."""
+    if explicit is not None:
+        return explicit
+    return env_flag(YOLO_TRACKING_ENV, True)
 
 
 def fallback_provider() -> str | None:

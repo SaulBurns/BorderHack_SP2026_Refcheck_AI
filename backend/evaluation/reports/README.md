@@ -55,3 +55,25 @@ between). Two honesty caveats, both stated in the report:
   accuracy** (hence the `recommended_provider` is not meaningful offline; the
   `cheapest_provider` callout is). Run with `--live` **and** the API keys for a
   real accuracy + cost comparison.
+
+## YOLO detector benchmark (Sprint 18A)
+
+`yolo_benchmark.{md,json}` compare the YOLO detector **before and after** the
+YOLO26 upgrade on detection accuracy (IoU precision/recall/F1), tracking quality
+(ID switches, purity, matched ratio), and latency. Produced by
+`scripts/yolo_benchmark.py`:
+
+```bash
+cd backend
+# Real head-to-head (needs `pip install ultralytics` + a frames dir; add --truth for accuracy):
+python scripts/yolo_benchmark.py --live --frames <dir> \
+  --before yolov8n.pt --after yolo26n.pt [--truth truth.json]
+# Offline harness self-check (no model, no keys) — validates the metrics + config:
+python scripts/yolo_benchmark.py
+```
+
+The committed artifact is a **live warm-model latency** before/after (yolov8n vs
+yolo26n) on generated frames — a real measurement of the upgrade's latency axis.
+Detection-accuracy / tracking deltas require `--truth` over **labeled footage**
+(not bundled); the metrics themselves are exercised offline by the self-check and
+by `tests/test_yolo_benchmark.py`.

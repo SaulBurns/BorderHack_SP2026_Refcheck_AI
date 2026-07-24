@@ -4,10 +4,12 @@ python-multipart
 python-dotenv
 certifi
 
-# Optional: YOLOv8 object detection (DETECTOR=yolov8 or hybrid).
-# Heavy (pulls in torch); imported lazily and not required for the default
-# DETECTOR=claude_vision. Install only when running YOLO-based detection.
-# ultralytics
+# Optional: YOLO object detection (DETECTOR=yolov8 or hybrid). Upgraded to the
+# latest stable Ultralytics (YOLO26 flagship) in Sprint 18A. Heavy (pulls in torch);
+# imported lazily and not required for the default DETECTOR=claude_vision. Install
+# only when running YOLO-based detection. The default weights are yolo26n.pt
+# (override with YOLO_MODEL, e.g. yolo11n.pt / yolov8n.pt).
+# ultralytics>=8.4.104,<8.5
 
 # Google Gemini provider (AI_PROVIDER=gemini, or a Gemini leg of AI_PROVIDER=router).
 # Now a first-class dependency (Sprint 17C) so Gemini is production-deployable out of

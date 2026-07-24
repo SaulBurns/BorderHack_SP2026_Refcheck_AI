@@ -1,9 +1,14 @@
-"""YOLOv8 detector (Phase 5, first version).
+"""YOLO detector (Phase 5; upgraded to YOLO26 in Sprint 18A).
 
 Runs object detection over extracted frames and returns structured detections.
 It does NOT derive sport-specific perception yet (no court geometry, defender
 status, etc.) — that is a later phase. It emits a neutral baseline perception so
 the pipeline remains runnable end-to-end and degrades to "inconclusive".
+
+The registry key is kept as `yolov8` (a stable role identifier — see
+`services/detectors/registry.py`); the concrete weights are configurable via
+`YOLO_MODEL` and reported on `RawDetections.model`, so an upgrade is a config
+change with no contract change.
 """
 
 from __future__ import annotations
@@ -44,7 +49,7 @@ class YOLODetector:
             "sport": sport,
             "event_type": "unclear",
             "summary": (
-                f"YOLOv8 produced {object_count} object detections across "
+                f"{detections.model} produced {object_count} object detections across "
                 f"{frame_count} frames. Semantic perception (event type, player "
                 "roles, geometry) is not yet derived from detections."
             ),

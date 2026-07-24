@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from services import config
 from services.detectors.detection_models import (
     BoundingBox,
     DetectionObject,
@@ -19,10 +20,14 @@ from services.detectors.detection_models import (
     RawDetections,
 )
 
-DETECTOR_VERSION = "0.2.0"
-DEFAULT_MODEL = "yolov8n.pt"
-DEFAULT_CONFIDENCE = 0.25
-DEFAULT_TRACKER = "bytetrack.yaml"
+# Sprint 18A — bumped for the YOLO26 upgrade (was 0.2.0 on YOLOv8). Reported on
+# every RawDetections so a stored/diagnosed detection payload records which
+# detector build produced it.
+DETECTOR_VERSION = "0.3.0"
+# Canonical defaults live in config (env-overridable); re-exported for back-compat.
+DEFAULT_MODEL = config.DEFAULT_YOLO_MODEL
+DEFAULT_CONFIDENCE = config.DEFAULT_YOLO_CONFIDENCE
+DEFAULT_TRACKER = config.DEFAULT_YOLO_TRACKER
 
 
 @dataclass(frozen=True)
@@ -85,19 +90,23 @@ class YoloInferenceService:
 
     def __init__(
         self,
-        model: str = DEFAULT_MODEL,
+        model: str | None = None,
         predictor: Predictor | None = None,
-        confidence: float = DEFAULT_CONFIDENCE,
-        use_tracking: bool = True,
-        tracker: str = DEFAULT_TRACKER,
+        confidence: float | None = None,
+        use_tracking: bool | None = None,
+        tracker: str | None = None,
     ) -> None:
-        self._model = model
+        # Sprint 18A — every setting resolves through config: an explicit arg wins,
+        # else the YOLO_* env var, else the default (YOLO26). Passing None (the new
+        # default) picks up env/config; existing callers passing explicit values are
+        # unchanged.
+        self._model = config.resolved_yolo_model(model)
         self._predictor = predictor
-        self._confidence = confidence
+        self._confidence = config.resolved_yolo_confidence(confidence)
         # Tracking (model.track with persist) gives stable track_id's across the
         # clip's frames; detection-only (model.predict) leaves track_id None.
-        self._use_tracking = use_tracking
-        self._tracker = tracker
+        self._use_tracking = config.resolved_yolo_tracking(use_tracking)
+        self._tracker = config.resolved_yolo_tracker(tracker)
         self._loaded_model = None  # cached ultralytics model
 
     def _load_model(self):
